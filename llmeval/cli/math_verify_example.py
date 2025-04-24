@@ -136,7 +136,7 @@ def process_answers(df: pd.DataFrame, gold_is_latex: bool) -> pd.DataFrame:
 
     # Calculate accuracy
     accuracy = correct_count / total_count if total_count > 0 else 0
-    print(f'\nEvaluation Results:')
+    print('\nEvaluation Results:')
     print(f'Total examples: {total_count}')
     print(f'Correct answers: {correct_count}')
     print(f'Accuracy: {accuracy:.2%}')
