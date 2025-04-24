@@ -8,4 +8,4 @@ deepseek_r1 = (
     'respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>.'
 )
 
-systerm_factory = {'qwen_math_cot': qwen_math_cot, 'deepseek_r1': deepseek_r1}
+TEMPLATE_FACTORY = {'qwen_math_cot': qwen_math_cot, 'deepseek_r1': deepseek_r1}

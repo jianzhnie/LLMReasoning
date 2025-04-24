@@ -4,6 +4,7 @@ import random
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
+import torch
 from datasets import Dataset, load_dataset
 from tqdm import tqdm
 from trl.data_utils import maybe_apply_chat_template
@@ -64,10 +65,7 @@ def lower_keys(example: Dict[str, Any]) -> Dict[str, Any]:
     return {key.lower(): value for key, value in example.items()}
 
 
-def load_data(data_name: str,
-              split: str,
-              data_dir: str = './data',
-              use_cache: bool = True) -> Dataset:
+def load_data(data_name: str, split: str, data_dir: str = './data') -> Dataset:
     """
     Load and return a HuggingFace Dataset. Supports local JSONL and HF datasets.
 
@@ -83,7 +81,7 @@ def load_data(data_name: str,
     os.makedirs(os.path.join(data_dir, data_name), exist_ok=True)
     data_file = os.path.join(data_dir, data_name, f'{split}.jsonl')
 
-    if use_cache and os.path.exists(data_file):
+    if os.path.exists(data_file):
         # Load from local JSONL and convert to HuggingFace dataset
         examples = list(load_json_data(data_file))
         if 'idx' not in examples[0]:
@@ -164,7 +162,7 @@ def preprocess_data(
     return {'prompt': prompt_text, 'label': label_text}
 
 
-class PromptDataset(Dataset):
+class PromptDataset(torch.utils.data.Dataset):
     """
     A PyTorch Dataset class for training reinforcement learning models (e.g., PPO).
 
@@ -173,7 +171,7 @@ class PromptDataset(Dataset):
         tokenizer (Any): Tokenizer to apply if using chat templates.
         input_key (str): Key used to retrieve the input text from each example.
         label_key (str): Key used to retrieve the label text from each example.
-        sys_template (Optional[str]): Optional system prompt for chat templates.
+        systerm_template (Optional[str]): Optional system prompt for chat templates.
         input_template (Optional[str]): Template string for formatting inputs.
         apply_chat_template (bool): Whether to use chat-style formatting for the inputs.
     """
@@ -184,7 +182,7 @@ class PromptDataset(Dataset):
         tokenizer: Any,
         input_key: str,
         label_key: str,
-        sys_template: Optional[str] = None,
+        systerm_template: Optional[str] = None,
         input_template: Optional[str] = None,
         apply_chat_template: bool = True,
     ) -> None:
@@ -196,7 +194,7 @@ class PromptDataset(Dataset):
                 data=data,
                 input_key=input_key,
                 label_key=label_key,
-                system_prompt=sys_template,
+                system_prompt=systerm_template,
                 input_template=input_template,
                 tokenizer=tokenizer,
                 apply_chat_template=apply_chat_template,
