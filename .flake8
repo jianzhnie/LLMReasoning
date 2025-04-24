@@ -1,6 +1,6 @@
 [flake8]
-ignore = 
-max-line-length = 79
+ignore =
+max-line-length = 120
 show-source = False
 application-import-names = llmeval
 exclude =

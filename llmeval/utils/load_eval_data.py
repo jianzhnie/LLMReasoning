@@ -1,8 +1,9 @@
-import os
 import json
-from typing import Union, Iterable, Any, List, Dict
+import os
 from pathlib import Path
-from datasets import load_dataset, Dataset
+from typing import Any, Dict, Iterable, List, Union
+
+from datasets import Dataset, load_dataset
 
 
 def load_jsonl(file: Union[str, Path]) -> Iterable[Dict[str, Any]]:
@@ -15,12 +16,12 @@ def load_jsonl(file: Union[str, Path]) -> Iterable[Dict[str, Any]]:
     Yields:
         Dict[str, Any]: Parsed JSON object from each line.
     """
-    with open(file, "r", encoding="utf-8") as f:
+    with open(file, 'r', encoding='utf-8') as f:
         for line in f:
             try:
                 yield json.loads(line)
             except json.JSONDecodeError:
-                print("Error in loading:", line)
+                print('Error in loading:', line)
                 raise
 
 
@@ -37,9 +38,9 @@ def lower_keys(example: Dict[str, Any]) -> Dict[str, Any]:
     return {key.lower(): value for key, value in example.items()}
 
 
-def load_data(
-    data_name: str, split: str, data_dir: str = "./data"
-) -> List[Dict[str, Any]]:
+def load_data(data_name: str,
+              split: str,
+              data_dir: str = './data') -> List[Dict[str, Any]]:
     """
     Load dataset from local file or download and process from HuggingFace.
 
@@ -51,26 +52,28 @@ def load_data(
     Returns:
         List[Dict[str, Any]]: Loaded and processed examples.
     """
-    data_file = os.path.join(data_dir, data_name, f"{split}.jsonl")
+    data_file = os.path.join(data_dir, data_name, f'{split}.jsonl')
     examples: List[Dict[str, Any]] = []
 
     if os.path.exists(data_file):
         examples = list(load_jsonl(data_file))
     else:
         # Load datasets from HuggingFace or local JSONs
-        if data_name == "math":
+        if data_name == 'math':
             dataset = load_dataset(
-                "competition_math",
+                'competition_math',
                 split=split,
-                name="main",
-                cache_dir=f"{data_dir}/temp",
+                name='main',
+                cache_dir=f'{data_dir}/temp',
             )
-        elif data_name == "gsm8k":
+        elif data_name == 'gsm8k':
             dataset = load_dataset(data_name, split=split)
-        elif data_name == "gsm-hard":
-            dataset = load_dataset("reasoning-machines/gsm-hard", split="train")
+        elif data_name == 'gsm-hard':
+            dataset = load_dataset('reasoning-machines/gsm-hard',
+                                   split='train')
         else:
-            raise NotImplementedError(f"Dataset '{data_name}' is not supported.")
+            raise NotImplementedError(
+                f"Dataset '{data_name}' is not supported.")
 
         # Normalize keys and save locally
         examples = [lower_keys(example) for example in list(dataset)]
@@ -78,10 +81,13 @@ def load_data(
         Dataset.from_list(examples).to_json(data_file)
 
     # Add 'idx' if not present
-    if "idx" not in examples[0]:
-        examples = [{"idx": i, **example} for i, example in enumerate(examples)]
+    if 'idx' not in examples[0]:
+        examples = [{
+            'idx': i,
+            **example
+        } for i, example in enumerate(examples)]
 
     # Sort by index
-    examples = sorted(examples, key=lambda x: x["idx"])
+    examples = sorted(examples, key=lambda x: x['idx'])
 
     return examples

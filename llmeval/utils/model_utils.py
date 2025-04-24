@@ -5,9 +5,6 @@ import tqdm
 from transformers import (AutoModelForCausalLM, AutoTokenizer, PreTrainedModel,
                           PreTrainedTokenizer, StoppingCriteria,
                           StoppingCriteriaList)
-"""
-https://github.com/allenai/open-instruct
-"""
 
 
 class KeywordsStoppingCriteria(StoppingCriteria):
