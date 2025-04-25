@@ -12,6 +12,7 @@ from vllm import LLM, SamplingParams
 
 from llmeval.utils.dataset_utils import PromptDataset, load_data
 from llmeval.utils.llm_template import TEMPLATE_FACTORY
+from llmeval.utils.math_grader import MathAccuracyReward
 from llmeval.utils.model_utils import load_hf_lm_and_tokenizer
 
 logging.basicConfig(level=logging.INFO)
@@ -24,35 +25,126 @@ class EvaluationMetrics:
     def __init__(self):
         self.total = 0
         self.correct = 0
+        self.partial_correct = 0
         self.results = []
+        self.math_grader = MathAccuracyReward()
+
+    def normalize_answer(self, text: str) -> str:
+        """Normalize answer text by removing spaces and converting to lowercase."""
+        return ''.join(text.lower().split())
 
     def update(self,
                prediction: str,
                label: str,
                metadata: Dict[str, Any] = None):
         self.total += 1
-        # TODO: Implement task-specific accuracy metrics
+
+        # Use math grader for detailed evaluation
+        eval_result = self.math_grader(prediction, label)
+
+        if eval_result['exact_match']:
+            self.correct += 1
+        elif eval_result['partial_match']:
+            self.partial_correct += 1
+
         result = {
             'prediction': prediction,
             'label': label,
-            'metadata': metadata
+            'metadata': metadata,
+            'exact_match': eval_result['exact_match'],
+            'partial_match': eval_result['partial_match'],
+            'reasoning_score': eval_result.get('reasoning_score', 0.0),
+            'error_analysis': eval_result.get('error_analysis', ''),
         }
         self.results.append(result)
 
     def get_metrics(self) -> Dict[str, float]:
-        return {
-            'total_samples': self.total,
-            'accuracy': self.correct / self.total if self.total > 0 else 0,
+        metrics = {
+            'total_samples':
+            self.total,
+            'exact_accuracy':
+            self.correct / self.total if self.total > 0 else 0,
+            'partial_accuracy':
+            self.partial_correct / self.total if self.total > 0 else 0,
+            'combined_accuracy': (self.correct + 0.5 * self.partial_correct) /
+            self.total if self.total > 0 else 0,
         }
+
+        # Calculate average reasoning scores
+        if self.results:
+            reasoning_scores = [
+                r['reasoning_score'] for r in self.results
+                if 'reasoning_score' in r
+            ]
+            if reasoning_scores:
+                metrics['avg_reasoning_score'] = sum(reasoning_scores) / len(
+                    reasoning_scores)
+
+        return metrics
+
+
+def analyze_results(results: Dict[str, Any]) -> Dict[str, Any]:
+    """Analyze evaluation results and generate insights."""
+    analysis = {}
+    for task_name, task_results in results.items():
+        task_analysis = {
+            'performance_summary': task_results['metrics'],
+            'error_patterns': {},
+            'common_mistakes': [],
+            'reasoning_quality': {},
+        }
+
+        # Analyze samples for error patterns
+        samples = task_results['samples']
+        error_count = 0
+        reasoning_scores = []
+
+        for sample in samples:
+            if not sample.get('exact_match'):
+                error_count += 1
+                if 'error_analysis' in sample:
+                    error_type = sample['error_analysis']
+                    task_analysis['error_patterns'][error_type] = (
+                        task_analysis['error_patterns'].get(error_type, 0) + 1)
+
+            if 'reasoning_score' in sample:
+                reasoning_scores.append(sample['reasoning_score'])
+
+        # Calculate reasoning quality statistics
+        if reasoning_scores:
+            task_analysis['reasoning_quality'] = {
+                'mean': sum(reasoning_scores) / len(reasoning_scores),
+                'min': min(reasoning_scores),
+                'max': max(reasoning_scores),
+            }
+
+        analysis[task_name] = task_analysis
+
+    return analysis
 
 
 def save_results(results: Dict[str, Any], output_dir: str, task_name: str):
+    """Save evaluation results and analysis to files."""
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_file = os.path.join(output_dir, f'{task_name}_{timestamp}.json')
-    with open(output_file, 'w') as f:
+
+    # Save detailed results
+    results_file = os.path.join(output_dir,
+                                f'{task_name}_{timestamp}_results.json')
+    with open(results_file, 'w') as f:
         json.dump(results, f, indent=2)
-    logger.info(f'Results saved to {output_file}')
+
+    # Generate and save analysis
+    analysis = analyze_results({task_name: results})
+    analysis_file = os.path.join(output_dir,
+                                 f'{task_name}_{timestamp}_analysis.json')
+    with open(analysis_file, 'w') as f:
+        json.dump(analysis, f, indent=2)
+
+    logger.info(f'Results saved to {results_file}')
+    logger.info(f'Analysis saved to {analysis_file}')
+
+    return analysis
 
 
 def evaluate(
@@ -75,6 +167,7 @@ def evaluate(
     tensor_parallel_size: int = 4,
     n_samples: int = 1,
     max_test: int = 10000,
+    save_predictions: bool = True,
 ) -> Dict[str, Any]:
     """
     Evaluate a model using the specified datasets and generation settings.
@@ -92,6 +185,7 @@ def evaluate(
         tensor_parallel_size (int): Tensor parallelism for vLLM.
         n_samples (int): Number of samples per prompt.
         max_test (int): Maximum number of test examples per task.
+        save_predictions (bool): Whether to save all predictions.
 
     Returns:
         Dict[str, Any]: Evaluation results for all tasks.
@@ -147,7 +241,7 @@ def evaluate(
         try:
             # Load dataset
             raw_data = load_data(
-                datat_name=task_name,
+                data_name=task_name,
                 split=eval_dataset_split,
                 data_dir=eval_dataset_dir,
             )[:max_test]
@@ -182,6 +276,8 @@ def evaluate(
                         generated_texts = [
                             output.outputs[0].text for output in outputs
                         ]
+                        for pred, label in zip(generated_texts, labels):
+                            metrics.update(pred, label)
                     else:
                         inputs = tokenizer(
                             prompts,
@@ -211,7 +307,7 @@ def evaluate(
                         prompts)  # Mark failed batch as errors
                     continue
 
-            # Save task results
+            # Save task results with enhanced analysis
             task_results = {
                 'metrics': metrics.get_metrics(),
                 'samples': metrics.results[:10],  # Save first 10 examples
@@ -219,10 +315,22 @@ def evaluate(
                     'model': model_name_or_path,
                     'task': task_name,
                     'timestamp': datetime.now().isoformat(),
+                    'generation_config': {
+                        'temperature': temperature,
+                        'top_p': top_p,
+                        'max_tokens': max_tokens,
+                        'n_samples': n_samples,
+                    },
                 },
             }
+
+            # Save all predictions if requested
+            if save_predictions:
+                task_results['all_predictions'] = metrics.results
+
             all_results[task_name] = task_results
-            save_results(task_results, output_dir, task_name)
+            analysis = save_results(task_results, output_dir, task_name)
+            all_results[task_name]['analysis'] = analysis[task_name]
 
         except Exception as e:
             logger.error(f'Failed to evaluate task {task_name}: {str(e)}')
