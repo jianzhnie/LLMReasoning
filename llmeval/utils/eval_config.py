@@ -4,7 +4,7 @@ from typing import Any, Dict, Literal, Optional
 
 from transformers import GenerationConfig
 
-from llmeval.utils import init_logger
+from llmeval.utils.logger import init_logger
 
 logger = init_logger(__name__)
 

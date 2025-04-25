@@ -4,7 +4,7 @@ from latex2sympy2_extended import NormalizationConfig
 from math_verify.grader import verify
 from math_verify.parser import LatexExtractionConfig, parse
 
-from llmeval.utils import init_logger
+from llmeval.utils.logger import init_logger
 
 logger = init_logger(__name__)
 
