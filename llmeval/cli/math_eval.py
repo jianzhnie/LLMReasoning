@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import torch
 from torch.utils.data import DataLoader
@@ -153,147 +153,96 @@ class MathEvaluator:
     def __init__(self, config: EvaluationArguments) -> None:
         self.args = config
 
-    def evaluate(
-        model_name_or_path: str,
-        eval_dataset_dir: str,
-        output_dir: str = 'eval_results',
-        eval_dataset_split: str = 'test',
-        infer_backend: str = 'hf',
-        generation_batch_size: int = 16,
-        tasks: List[str] = [
-            'aime', 'amc', 'math', 'minerva', 'olympiad_bench'
-        ],
-        systerm_template: str = 'qwen_math_cot',
-        input_template: str = '',
-        input_key: str = 'question',
-        label_key: str = 'solution',
-        apply_chat_template: bool = False,
-        temperature: float = 0.0,
-        top_p: float = 1.0,
-        max_tokens: int = 3000,
-        max_model_len: int = 4096,
-        tensor_parallel_size: int = 4,
-        n_samples: int = 1,
-        max_test: int = 10000,
-        save_predictions: bool = True,
-    ) -> Dict[str, Any]:
-        """
-        Evaluate a model using the specified datasets and generation settings.
+    def evaluate(self) -> Dict[str, Any]:
+        logger.info(f'Evaluating model: {self.args.model_name_or_path}')
+        os.makedirs(self.args.output_dir, exist_ok=True)
 
-        Args:
-            model_name_or_path (str): Path to the model or model hub name.
-            eval_dataset_dir (str): Path to the evaluation dataset directory.
-            output_dir (str): Directory to save evaluation results.
-            tasks (List[str]): Task names to evaluate on.
-            systerm_template (str): Template name for system prompt.
-            temperature (float): Sampling temperature.
-            top_p (float): Top-p sampling.
-            max_tokens (int): Maximum generation length.
-            max_model_len (int): Maximum model input length.
-            tensor_parallel_size (int): Tensor parallelism for vLLM.
-            n_samples (int): Number of samples per prompt.
-            max_test (int): Maximum number of test examples per task.
-            save_predictions (bool): Whether to save all predictions.
-
-        Returns:
-            Dict[str, Any]: Evaluation results for all tasks.
-        """
-        logger.info(f'Evaluating model: {model_name_or_path}')
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Initialize model and tokenizer
         try:
-            if infer_backend == 'vllm':
+            if self.args.infer_backend == 'vllm':
                 sampling_params = SamplingParams(
-                    n=n_samples,
-                    temperature=temperature,
-                    top_p=top_p,
-                    max_tokens=max_tokens,
+                    n=self.args.n_samples,
+                    temperature=self.args.temperature,
+                    top_p=self.args.top_p,
+                    max_tokens=self.args.max_tokens,
                 )
 
                 tokenizer = AutoTokenizer.from_pretrained(
-                    model_name_or_path, trust_remote_code=True)
+                    self.args.model_name_or_path, trust_remote_code=True)
 
                 model = LLM(
-                    model=model_name_or_path,
+                    model=self.args.model_name_or_path,
                     trust_remote_code=True,
                     dtype='bfloat16',
-                    max_model_len=max_model_len,
+                    max_model_len=self.args.max_model_len,
                     gpu_memory_utilization=0.96,
                     enable_prefix_caching=True,
-                    tensor_parallel_size=tensor_parallel_size,
+                    tensor_parallel_size=self.args.tensor_parallel_size,
                 )
             else:
                 tokenizer, model = load_hf_lm_and_tokenizer(
-                    model_name_or_path=model_name_or_path,
+                    model_name_or_path=self.args.model_name_or_path,
                     use_fast_tokenizer=True,
                 )
-                # Initialize HF-specific generation parameters
+
                 generation_config = {
-                    'max_new_tokens': max_tokens,
-                    'temperature': temperature,
-                    'top_p': top_p,
-                    'do_sample': temperature > 0,
+                    'max_new_tokens': self.args.max_tokens,
+                    'temperature': self.args.temperature,
+                    'top_p': self.args.top_p,
+                    'do_sample': self.args.temperature > 0,
                 }
         except Exception as e:
             logger.error(f'Failed to load model: {str(e)}')
             raise
 
         all_results = {}
-        template = TEMPLATE_FACTORY.get(systerm_template, '')
+        template = TEMPLATE_FACTORY.get(self.args.systerm_template, '')
 
-        for task_name in tasks:
+        for task_name in self.args.tasks:
             logger.info(f'Evaluating task: {task_name}')
             metrics = EvaluationMetrics()
 
             try:
-                # Load dataset
                 raw_data = load_data(
                     data_name=task_name,
-                    split=eval_dataset_split,
-                    data_dir=eval_dataset_dir,
-                )[:max_test]
+                    split=self.args.eval_dataset_split,
+                    data_dir=self.args.eval_dataset_dir,
+                )[:self.args.max_test]
 
-                # Create dataset and dataloader
                 prompt_eval_dataset = PromptDataset(
                     raw_data,
                     tokenizer=tokenizer,
-                    input_key=input_key,
-                    label_key=label_key,
+                    input_key=self.args.input_key,
+                    label_key=self.args.label_key,
                     systerm_template=template,
-                    input_template=input_template,
-                    apply_chat_template=apply_chat_template,
+                    input_template=self.args.input_template,
+                    apply_chat_template=self.args.apply_chat_template,
                 )
 
                 prompt_eval_dataloader = DataLoader(
                     prompt_eval_dataset,
-                    batch_size=generation_batch_size,
+                    batch_size=self.args.generation_batch_size,
                     shuffle=False,
-                    collate_fn=lambda x:
-                    x,  # Custom collate handled in dataset
+                    collate_fn=lambda x: x,
                 )
 
-                # Evaluation loop
                 for batch_inputs in tqdm(prompt_eval_dataloader,
                                          desc=f'Evaluating {task_name}'):
                     prompts = batch_inputs['prompt']
                     labels = batch_inputs['label']
 
                     try:
-                        if infer_backend == 'vllm':
+                        if self.args.infer_backend == 'vllm':
                             outputs = model.generate(prompts, sampling_params)
                             generated_texts = [
                                 output.outputs[0].text for output in outputs
                             ]
-                            for pred, label in zip(generated_texts, labels):
-                                metrics.update(pred, label)
                         else:
                             inputs = tokenizer(
                                 prompts,
                                 return_tensors='pt',
                                 padding=True,
                                 truncation=True,
-                                max_length=max_model_len,
+                                max_length=self.args.max_model_len,
                             )
                             inputs = {
                                 k: v.to(model.device)
@@ -306,39 +255,36 @@ class MathEvaluator:
                             generated_texts = tokenizer.batch_decode(
                                 outputs, skip_special_tokens=True)
 
-                        # Update metrics
                         for pred, label in zip(generated_texts, labels):
                             metrics.update(pred, label)
 
                     except Exception as e:
                         logger.error(f'Error during generation: {str(e)}')
-                        metrics.total += len(
-                            prompts)  # Mark failed batch as errors
+                        metrics.total += len(prompts)
                         continue
 
-                # Save task results with enhanced analysis
                 task_results = {
                     'metrics': metrics.get_metrics(),
-                    'samples': metrics.results[:10],  # Save first 10 examples
+                    'samples': metrics.results[:10],
                     'config': {
-                        'model': model_name_or_path,
+                        'model': self.args.model_name_or_path,
                         'task': task_name,
                         'timestamp': datetime.now().isoformat(),
                         'generation_config': {
-                            'temperature': temperature,
-                            'top_p': top_p,
-                            'max_tokens': max_tokens,
-                            'n_samples': n_samples,
+                            'temperature': self.args.temperature,
+                            'top_p': self.args.top_p,
+                            'max_tokens': self.args.max_tokens,
+                            'n_samples': self.args.n_samples,
                         },
                     },
                 }
 
-                # Save all predictions if requested
-                if save_predictions:
+                if self.args.save_predictions:
                     task_results['all_predictions'] = metrics.results
 
                 all_results[task_name] = task_results
-                analysis = save_results(task_results, output_dir, task_name)
+                analysis = save_results(task_results, self.args.output_dir,
+                                        task_name)
                 all_results[task_name]['analysis'] = analysis[task_name]
 
             except Exception as e:
@@ -360,6 +306,10 @@ def main():
     print(f'Model path: {args.model_name_or_path}')
     print(f'Task: {args.task}')
     # ... use other arguments as needed
+
+    evaluator = MathEvaluator(args)
+    results = evaluator.evaluate()
+    print(results)
 
 
 if __name__ == '__main__':
