@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class EvaluationMetrics:
+    """Enhanced evaluation metrics with answer normalization and custom comparison"""
 
     def __init__(self):
         self.total = 0
@@ -96,6 +97,7 @@ def evaluate(
         Dict[str, Any]: Evaluation results for all tasks.
     """
     logger.info(f'Evaluating model: {model_name_or_path}')
+    os.makedirs(output_dir, exist_ok=True)
 
     # Initialize model and tokenizer
     try:
@@ -144,15 +146,15 @@ def evaluate(
 
         try:
             # Load dataset
-            prompt_eval_dataset = load_data(
+            raw_data = load_data(
                 datat_name=task_name,
                 split=eval_dataset_split,
                 data_dir=eval_dataset_dir,
-            )
+            )[:max_test]
 
             # Create dataset and dataloader
             prompt_eval_dataset = PromptDataset(
-                prompt_eval_dataset,
+                raw_data,
                 tokenizer=tokenizer,
                 input_key=input_key,
                 label_key=label_key,
@@ -165,6 +167,7 @@ def evaluate(
                 prompt_eval_dataset,
                 batch_size=generation_batch_size,
                 shuffle=False,
+                collate_fn=lambda x: x,  # Custom collate handled in dataset
             )
 
             # Evaluation loop
@@ -180,9 +183,13 @@ def evaluate(
                             output.outputs[0].text for output in outputs
                         ]
                     else:
-                        inputs = tokenizer(prompts,
-                                           return_tensors='pt',
-                                           padding=True)
+                        inputs = tokenizer(
+                            prompts,
+                            return_tensors='pt',
+                            padding=True,
+                            truncation=True,
+                            max_length=max_model_len,
+                        )
                         inputs = {
                             k: v.to(model.device)
                             for k, v in inputs.items()
@@ -200,12 +207,19 @@ def evaluate(
 
                 except Exception as e:
                     logger.error(f'Error during generation: {str(e)}')
+                    metrics.total += len(
+                        prompts)  # Mark failed batch as errors
                     continue
 
             # Save task results
             task_results = {
                 'metrics': metrics.get_metrics(),
                 'samples': metrics.results[:10],  # Save first 10 examples
+                'config': {
+                    'model': model_name_or_path,
+                    'task': task_name,
+                    'timestamp': datetime.now().isoformat(),
+                },
             }
             all_results[task_name] = task_results
             save_results(task_results, output_dir, task_name)
@@ -218,5 +232,11 @@ def evaluate(
 
 
 if __name__ == '__main__':
-    # Add command-line interface if needed
-    pass
+    # Example usage
+    results = evaluate(
+        model_name_or_path='Qwen/Qwen1.5-7B',
+        eval_dataset_dir='./datasets',
+        tasks=['math'],
+        max_test=100,
+    )
+    print(json.dumps(results, indent=2))
