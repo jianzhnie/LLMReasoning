@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 from datetime import datetime
 from typing import Any, Dict
@@ -13,11 +12,11 @@ from vllm import LLM, SamplingParams
 from llmeval.utils.dataset_utils import PromptDataset, load_data
 from llmeval.utils.eval_config import EvaluationArguments
 from llmeval.utils.llm_template import TEMPLATE_FACTORY
+from llmeval.utils.logger import init_logger
 from llmeval.utils.math_grader import MathAccuracyReward
 from llmeval.utils.model_utils import load_hf_lm_and_tokenizer
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = init_logger(__name__)
 
 
 class EvaluationMetrics:
