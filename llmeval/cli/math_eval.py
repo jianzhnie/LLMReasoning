@@ -11,76 +11,12 @@ from vllm import LLM, SamplingParams
 
 from llmeval.utils.dataset_utils import PromptDataset, load_data
 from llmeval.utils.eval_config import EvaluationArguments
+from llmeval.utils.eval_metrics import EvaluationMetrics
 from llmeval.utils.llm_template import TEMPLATE_FACTORY
 from llmeval.utils.logger import init_logger
-from llmeval.utils.math_grader import MathAccuracyReward
 from llmeval.utils.model_utils import load_hf_lm_and_tokenizer
 
 logger = init_logger(__name__)
-
-
-class EvaluationMetrics:
-    """Enhanced evaluation metrics with answer normalization and custom comparison"""
-
-    def __init__(self):
-        self.total = 0
-        self.correct = 0
-        self.partial_correct = 0
-        self.results = []
-        self.math_grader = MathAccuracyReward()
-
-    def normalize_answer(self, text: str) -> str:
-        """Normalize answer text by removing spaces and converting to lowercase."""
-        return ''.join(text.lower().split())
-
-    def update(self,
-               prediction: str,
-               label: str,
-               metadata: Dict[str, Any] = None):
-        self.total += 1
-
-        # Use math grader for detailed evaluation
-        eval_result = self.math_grader(prediction, label)
-
-        if eval_result['exact_match']:
-            self.correct += 1
-        elif eval_result['partial_match']:
-            self.partial_correct += 1
-
-        result = {
-            'prediction': prediction,
-            'label': label,
-            'metadata': metadata,
-            'exact_match': eval_result['exact_match'],
-            'partial_match': eval_result['partial_match'],
-            'reasoning_score': eval_result.get('reasoning_score', 0.0),
-            'error_analysis': eval_result.get('error_analysis', ''),
-        }
-        self.results.append(result)
-
-    def get_metrics(self) -> Dict[str, float]:
-        metrics = {
-            'total_samples':
-            self.total,
-            'exact_accuracy':
-            self.correct / self.total if self.total > 0 else 0,
-            'partial_accuracy':
-            self.partial_correct / self.total if self.total > 0 else 0,
-            'combined_accuracy': (self.correct + 0.5 * self.partial_correct) /
-            self.total if self.total > 0 else 0,
-        }
-
-        # Calculate average reasoning scores
-        if self.results:
-            reasoning_scores = [
-                r['reasoning_score'] for r in self.results
-                if 'reasoning_score' in r
-            ]
-            if reasoning_scores:
-                metrics['avg_reasoning_score'] = sum(reasoning_scores) / len(
-                    reasoning_scores)
-
-        return metrics
 
 
 def analyze_results(results: Dict[str, Any]) -> Dict[str, Any]:
@@ -254,12 +190,11 @@ class MathEvaluator:
                             generated_texts = tokenizer.batch_decode(
                                 outputs, skip_special_tokens=True)
 
-                        for pred, label in zip(generated_texts, labels):
-                            metrics.update(pred, label)
+                        # Update metrics with prompts included
+                        metrics.update(generated_texts, labels, prompts)
 
                     except Exception as e:
                         logger.error(f'Error during generation: {str(e)}')
-                        metrics.total += len(prompts)
                         continue
 
                 task_results = {
