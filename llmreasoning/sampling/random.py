@@ -14,7 +14,6 @@ Here's an [experiment](experiment.html) that uses these sampling techniques.
 
 import torch
 from torch.distributions import Categorical
-
 from llmreasoning.sampling.base import Sampler
 
 
