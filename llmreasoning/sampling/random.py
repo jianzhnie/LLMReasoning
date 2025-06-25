@@ -9,11 +9,12 @@ summary: A PyTorch implementation of random sampling from language models.
 Here we sample randomly from the probability distribution defined by the logits.
 This is equivalent to temperature sampling with temperature = 1.0.
 
-Here's an [experiment](experiment.html) that uses these sampling techniques.
+
 """
 
 import torch
 from torch.distributions import Categorical
+
 from llmreasoning.sampling.base import Sampler
 
 

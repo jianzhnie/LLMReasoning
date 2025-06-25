@@ -1,7 +1,8 @@
+from typing import Optional
+
 import torch
 import torch.nn.functional as F
 from transformers import PreTrainedModel, PreTrainedTokenizer
-from typing import Optional
 
 
 class TopKTopPFilter:
@@ -18,10 +19,10 @@ class TopKTopPFilter:
     """
 
     def __init__(
-        self,
-        top_k: int = 0,
-        top_p: float = 0.0,
-        filter_value: float = -float("Inf"),
+            self,
+            top_k: int = 0,
+            top_p: float = 0.0,
+            filter_value: float = -float('Inf'),
     ) -> None:
         self.top_k = top_k
         self.top_p = top_p
@@ -32,13 +33,16 @@ class TopKTopPFilter:
         对输入的 logits 应用 top-k 和 top-p 过滤。
 
         Args:
-            logits: (vocab_size,) 的 logits 张量。
+            logits: (batch_size, vocab_size) 的 logits 张量。
 
         Returns:
             过滤后的 logits 张量。
         """
+        assert (
+            logits.dim() == 1
+        )  # batch size 1 for now - could be updated for more but the code would be less clear
         logits = logits.clone()  # 避免原地修改
-        vocab_size = logits.size(0)
+        vocab_size = logits.size(-1)
 
         # Top-K 过滤
         if self.top_k > 0:
@@ -52,7 +56,10 @@ class TopKTopPFilter:
             probs = F.softmax(sorted_logits, dim=-1)
             cumulative_probs = torch.cumsum(probs, dim=-1)
 
+            # Remove tokens with cumulative probability above the threshold
             sorted_indices_to_remove = cumulative_probs > self.top_p
+
+            # Shift the indices to the right to keep also the first token above the threshold
             sorted_indices_to_remove[1:] = sorted_indices_to_remove[:-1]
             sorted_indices_to_remove[0] = False
 
@@ -90,22 +97,22 @@ def generate(
     Returns:
         生成的文本字符串。
     """
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
     model.eval()
 
-    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    input_ids = tokenizer.encode(prompt, return_tensors='pt').to(device)
     generated = input_ids.clone()
 
     # 创建过滤器实例
-    filter = TopKTopPFilter(top_k=top_k, top_p=top_p)
+    sample_filter = TopKTopPFilter(top_k=top_k, top_p=top_p)
 
     for _ in range(max_new_tokens):
         with torch.no_grad():
             outputs = model(input_ids=generated)
             next_token_logits = outputs.logits[0, -1, :] / temperature
 
-            filtered_logits = filter(next_token_logits)
+            filtered_logits = sample_filter(next_token_logits)
             probs = F.softmax(filtered_logits, dim=-1)
 
             next_token = torch.multinomial(probs, num_samples=1)

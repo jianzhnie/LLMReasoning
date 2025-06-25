@@ -7,13 +7,13 @@ summary: >
 
 # Sampling Techniques for Language Models
 
-* [Greedy Sampling](greedy.html)
-* [Temperature Sampling](temperature.html)
-* [Top-k Sampling](top_k.html)
-* [Nucleus Sampling](nucleus.html)
-* [Random Sampling](random.html)
+* [Greedy Sampling]
+* [Temperature Sampling]
+* [Top-k Sampling]
+* [Nucleus Sampling]
+* [Random Sampling]
 
-Here's an [experiment](experiment.html) that uses these sampling techniques.
+
 """
 
 import torch

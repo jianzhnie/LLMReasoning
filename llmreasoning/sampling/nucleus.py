@@ -23,11 +23,11 @@ That is, we pick the highest probable tokens until the sum of their probabilitie
 
 Then we sample from the selected tokens.
 
-Here's an [experiment](experiment.html) that uses these sampling techniques.
 """
 
 import torch
 from torch import nn
+
 from llmreasoning.sampling.base import Sampler
 
 
@@ -63,12 +63,12 @@ class NucleusSampler(Sampler):
         # Prepend ones so that we add one token after the minimum number
         # of tokens with cumulative probability less that $p$.
         nucleus = torch.cat(
-            [nucleus.new_ones(nucleus.shape[:-1] + (1,)), nucleus[..., :-1]], dim=-1
-        )
+            [nucleus.new_ones(nucleus.shape[:-1] + (1, )), nucleus[..., :-1]],
+            dim=-1)
 
         # Get log probabilities and mask out the non-nucleus
         sorted_log_probs = torch.log(sorted_probs)
-        sorted_log_probs[~nucleus] = float("-inf")
+        sorted_log_probs[~nucleus] = float('-inf')
 
         # Sample from the sampler
         sampled_sorted_indexes = self.sampler(sorted_log_probs)

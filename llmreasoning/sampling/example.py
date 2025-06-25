@@ -7,26 +7,24 @@ summary: >
 
 # Trying out Sampling Techniques for Language Models
 
-* [Greedy Sampling](greedy.html)
-* [Temperature Sampling](temperature.html)
-* [Top-k Sampling](top_k.html)
-* [Nucleus Sampling](nucleus.html)
+* [Greedy Sampling]
+* [Temperature Sampling]
+* [Top-k Sampling]
+* [Nucleus Sampling]
 
 This experiment uses the above sampling techniques, on HuggingFace's GPT2 model.
 """
 
 import torch
-
-from labml import monit, logger, lab
-
+from labml import lab, logger, monit
 from labml.logger import Text
+from transformers import GPT2LMHeadModel, GPT2Tokenizer
 
 from llmreasoning.sampling.base import Sampler
 from llmreasoning.sampling.greedy import GreedySampler
 from llmreasoning.sampling.nucleus import NucleusSampler
 from llmreasoning.sampling.temperature import TemperatureSampler
 from llmreasoning.sampling.top_k import TopKSampler
-from transformers import GPT2Tokenizer, GPT2LMHeadModel
 
 
 @torch.no_grad()
@@ -51,12 +49,13 @@ def sample(
     :param prompt: is the starting prompt
     """
     # Tokenize the `prompt` and make `n_samples` copies of it
-    data = torch.tile(torch.tensor(tokenizer.encode(prompt))[None, :], (n_samples, 1))
+    data = torch.tile(
+        torch.tensor(tokenizer.encode(prompt))[None, :], (n_samples, 1))
 
     # Collect output for printing
     logs = [[(prompt, Text.meta)] for _ in range(n_samples)]
     # Sample `n_tokens`
-    for i in monit.iterate("Sample", n_tokens):
+    for i in monit.iterate('Sample', n_tokens):
         # Truncate the data to the maximum sequence length
         data = data[-seq_len:]
         # Get the model output. The 'logits' has shape `[batch_size, seq_len, n_tokens]`
@@ -69,7 +68,7 @@ def sample(
         data = torch.cat([data, res[:, None]], dim=1)
         # Decode and add the sampled token for logging
         for j in range(n_samples):
-            logs[j] += [("" + tokenizer.decode(res[j]), Text.value)]
+            logs[j] += [('' + tokenizer.decode(res[j]), Text.value)]
 
     # Print the sampled outputs
     for j in range(n_samples):
@@ -82,33 +81,32 @@ def main():
     """
 
     # Load the model and tokenizer
-    with monit.section("Load tokenizer/model"):
+    with monit.section('Load tokenizer/model'):
         tokenizer = GPT2Tokenizer.from_pretrained(
-            "gpt2", cache_dir=lab.get_data_path() / "cache"
-        )
-        model = GPT2LMHeadModel.from_pretrained(
-            "gpt2", cache_dir=lab.get_data_path() / "cache"
-        )
+            'gpt2', cache_dir=lab.get_data_path() / 'cache')
+        model = GPT2LMHeadModel.from_pretrained('gpt2',
+                                                cache_dir=lab.get_data_path() /
+                                                'cache')
     # Set the model to eval mode
     model.eval()
 
     # Prompts to use for sampling
-    prompt = "I saw an interesting dream last night. "
+    prompt = 'I saw an interesting dream last night. '
 
     # [Greedy Sampling](greedy.html)
-    with monit.section("greedy"):
+    with monit.section('greedy'):
         sample(model, tokenizer, GreedySampler(), 4, 32, 128, prompt)
 
     # [Temperature Sampling](temperature.html)
-    with monit.section("temperature=1."):
+    with monit.section('temperature=1.'):
         sample(model, tokenizer, TemperatureSampler(1.0), 4, 32, 128, prompt)
-    with monit.section("temperature=.1"):
+    with monit.section('temperature=.1'):
         sample(model, tokenizer, TemperatureSampler(0.1), 4, 32, 128, prompt)
-    with monit.section("temperature=10."):
+    with monit.section('temperature=10.'):
         sample(model, tokenizer, TemperatureSampler(10.0), 4, 32, 128, prompt)
 
     # [Top-k Sampling](top_k.html)
-    with monit.section("top_k=5"):
+    with monit.section('top_k=5'):
         sample(
             model,
             tokenizer,
@@ -120,7 +118,7 @@ def main():
         )
 
     # [Nucleus Sampling](nucleus.html)
-    with monit.section("nucleus p=.95"):
+    with monit.section('nucleus p=.95'):
         sample(
             model,
             tokenizer,
@@ -130,7 +128,7 @@ def main():
             128,
             prompt,
         )
-    with monit.section("nucleus p=.1"):
+    with monit.section('nucleus p=.1'):
         sample(
             model,
             tokenizer,
@@ -143,5 +141,5 @@ def main():
 
 
 #
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

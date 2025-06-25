@@ -9,11 +9,10 @@ summary: A PyTorch implementation of top-k sampling from language models.
 Here we first pick the top-k tokens from the distribution of logits, and then
 sample from them.
 
-Here's an [experiment](experiment.html) that uses these sampling techniques.
+
 """
 
 import torch
-
 
 from llmreasoning.sampling.base import Sampler
 
@@ -39,7 +38,7 @@ class TopKSampler(Sampler):
         Sample from logits
         """
         # New logits filled with $-\infty$; i.e. zero probability
-        zeros = logits.new_ones(logits.shape) * float("-inf")
+        zeros = logits.new_ones(logits.shape) * float('-inf')
         # Pick the largest $k$ logits and their indices
         values, indices = torch.topk(logits, self.k, dim=-1)
         # Set the values of the top-k selected indices to actual logits.
