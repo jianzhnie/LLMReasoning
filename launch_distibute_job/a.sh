@@ -13,7 +13,6 @@
 # -e: 命令执行失败时立即退出
 # -u: 尝试使用未定义的变量时立即退出
 # -o pipefail: 管道中的命令失败时，将整个管道的退出码设为失败
-
 set -euo pipefail
 
 #----------------------------------------
@@ -29,7 +28,7 @@ usage() {
     exit 1
 }
 
-# 如果提供了参数，则使用第一个参数作为节点列表文件路径
+# 检查参数数量
 if [ "$#" -gt 1 ]; then
     echo "❌ 错误: 参数过多。"
     usage
@@ -58,14 +57,14 @@ fi
 
 # --- 可配置参数 ---
 # 如果环境变量已设置，则使用环境变量的值，否则使用默认值。
-: "${MASTER_ADDR:=${NODE_HOSTS[0]}}" # 主节点地址 (默认为列表中的第一个节点)
-: "${MASTER_PORT:="29500"}"           # 主节点端口
-: "${DEVICES_PER_NODE:="8"}"          # 每节点设备数 (原 NPUS_PER_NODE，更通用)
-: "${SSH_USER:="root"}"               # SSH 用户 (建议使用非 root 普通用户)
-: "${SSH_TIMEOUT:="30"}"              # SSH 连接超时 (秒)
-: "${WORK_DIR:="/root/llmtuner/tools/test_hccl"}"     # 远程节点的工作目录
+: "${MASTER_ADDR:=${NODE_HOSTS[0]}}"    # 主节点地址 (默认为列表中的第一个节点)
+: "${MASTER_PORT:="29500"}"              # 主节点端口
+: "${DEVICES_PER_NODE:="8"}"             # 每节点设备数 (原 NPUS_PER_NODE，更通用)
+: "${SSH_USER:="root"}"                  # SSH 用户 (建议使用非 root 普通用户)
+: "${SSH_TIMEOUT:="30"}"                 # SSH 连接超时 (秒)
+: "${WORK_DIR:="/root/llmtuner/tools/test_hccl"}" # 远程节点的工作目录
 : "${REMOTE_SCRIPT:="run_single_node.sh"}" # 要在远程节点上执行的脚本
-: "${LOG_DIR:="logs"}"                # 日志文件存放目录
+: "${LOG_DIR:="logs"}"                   # 日志文件存放目录
 
 # --- 只读常量 ---
 readonly NUM_NODES=${#NODE_HOSTS[@]}
@@ -128,8 +127,8 @@ print_config() {
     echo "  远程执行脚本    : $REMOTE_SCRIPT"
     echo "  日志保存目录    : $LOG_DIR"
     echo "========================================================"
-    # 创建日志目录
-    rm -rf "$LOG_DIR" # 可选：每次启动前清理旧日志
+    # 清理并创建日志目录
+    rm -rf "$LOG_DIR"
     mkdir -p "$LOG_DIR"
 }
 
@@ -140,12 +139,12 @@ launch_nodes() {
     for i in "${!NODE_HOSTS[@]}"; do
         local node_host=${NODE_HOSTS[$i]}
         local node_rank=$i
-        # 为每个节点定义清晰的日志文件路径
         local log_file="$LOG_DIR/rank-${node_rank}_host-${node_host}.log"
 
         echo "  -> 启动节点 [Rank $node_rank] @ $node_host (日志: $log_file)"
 
         # 使用 SSH 执行远程命令，并将该节点的标准输出和错误都重定向到其独立的日志文件
+        # 新增 -o ServerAliveInterval=60 选项，防止长时间无输出的连接被关闭
         ssh \
             -o StrictHostKeyChecking=no \
             -o ConnectTimeout="$SSH_TIMEOUT" \
@@ -168,7 +167,7 @@ launch_nodes() {
                     '$DEVICES_PER_NODE' \
                     '$MASTER_ADDR' \
                     '$MASTER_PORT';
-            " > "$log_file" 2>&1 & # 注意这里的 &，它让 ssh 在后台运行
+            " > "$log_file" 2>&1 &
 
         PIDS+=($!) # 将后台 ssh 进程的 PID 添加到数组
 

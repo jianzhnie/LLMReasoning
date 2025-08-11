@@ -53,13 +53,13 @@ export WORK_DIR="/home/user_name/my_project"
 - **默认启动**：如果节点列表文件是 `./node_list.txt`，可以直接运行：
 
   ```
-  bash launch_distributed.sh
+  bash launch_multi_nodes.sh
   ```
 
 - **指定文件**：如果文件路径不同，可以将其作为第一个参数传入：
 
   ```
-  bash launch_distributed.sh /path/to/your/node_list.txt
+  bash launch_multi_nodes.sh /path/to/your/node_list.txt
   ```
 
 #### 4. 查看日志
