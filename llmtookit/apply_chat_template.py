@@ -1,3 +1,4 @@
+import os
 from typing import Dict, List, Optional
 
 from transformers import AutoTokenizer
@@ -11,6 +12,7 @@ MODEL_PATHS: Dict[str, str] = {
     'DeepSeek-R1-Distill-Qwen-32B': 'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B',
     'Skywork-OR1-32B': 'Skywork/Skywork-OR1-32B',
     'DeepSeek-R1': 'deepseek-ai/DeepSeek-R1',
+    'OpenThinker3-7B': 'open-thoughts/OpenThinker3-7B'
 }
 
 # 各种系统 prompt 类型
@@ -26,6 +28,8 @@ SYSTEM_PROMPT_FACTORY: Dict[str, Optional[str]] = {
     'You are a helpful assistant.',
     'none':
     None,
+    'openr1_prompt':
+    'You are a helpful AI Assistant that provides well-reasoned and detailed responses. You first think about the reasoning process as an internal monologue and then provide the user with the answer. Respond in the following format: <think>\n...\n</think>\n<answer>\n...\n</answer>'
 }
 
 qwen_math_cot = (
@@ -71,7 +75,9 @@ def try_chat_template(model_name: str, model_path: str, prompt_name: str,
 
 
 if __name__ == '__main__':
+    model_dir = '/root/llmtuner/hfhub/models/'
     for model_name, model_path in MODEL_PATHS.items():
+        model_path = os.path.join(model_dir, model_path)
         for prompt_name, system_prompt in SYSTEM_PROMPT_FACTORY.items():
             try_chat_template(model_name, model_path, prompt_name,
                               system_prompt)
