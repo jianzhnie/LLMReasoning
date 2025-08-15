@@ -1,6 +1,6 @@
 ## 数据处理
 
-[DPO 数据集生成脚本](toolkit/dpo_data_process.md) | [Script](LLMReasoning/llmreasoning/data_process/dpo_data_process.py)
+[DPO 数据集生成脚本](toolkit/dpo_data_process.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/llmreasoning/data_process/dpo_data_process.py)
 
 
 ## 分布式训练

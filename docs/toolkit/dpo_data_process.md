@@ -1,5 +1,9 @@
 # DPO 数据集生成脚本介绍
 
+> 脚本地址：[Script](https://gitee.com/jianzhnie/LLMReasoning/llmreasoning/data_process/dpo_data_process.py)
+
+
+
 这个 Python 脚本是一个强大的数据处理工具，旨在为\*\*直接偏好优化（DPO）**训练任务生成高质量的数据集。它从包含多个思维链（CoT）和问题的数据源中，自动构建 DPO 所需的**`（prompt, chosen, rejected）`\*\*三元组。
 
 **核心功能:**
