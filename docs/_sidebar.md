@@ -1,9 +1,6 @@
-- [大语言模型](aigc/)
-- [强化微调](rlhf/)
-- [推理部署](inference/)
-- [Ascend生态](ascend/)
-- [大规模并行](ultrascale/)
-- [扩散模型](diffusion/)
-- [多模态](multimodal/)
-- [强化学习](rlwiki/)
-- [效率工具](toolbox/)
+- 数据处理
+  - [DPO 数据集生成脚本](toolkit/dpo_data_process.md)
+
+- 分布式训练
+  - [多节多卡分布式通信测试](toolkit/launch_multi_node_hccl_test.md)
+  - [多机多卡进程Kill脚本](toolkit/kill_multi_nodes.md)

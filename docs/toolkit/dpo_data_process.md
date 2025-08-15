@@ -137,19 +137,19 @@ pip install datasets transformers
 
 以下是脚本支持的所有命令行参数：
 
-| 参数名 | 类型 | 默认值 | 描述 |
-| :--- | :--- | :--- | :--- |
-| `--input_path` | `str` | **无** | \*\*必需。\*\*输入 JSONL 文件路径。 |
-| `--output_path` | `str` | **无** | \*\*必需。\*\*输出 JSONL 文件路径。 |
-| `--model_name_or_path`| `str` | **无** | \*\*必需。\*\*用于加载 tokenizer 的模型名称或本地路径。|
-| `--cache_dir` | `str` | `/root/llmtuner/hfhub/cache_dir` | Hugging Face 缓存目录。|
-| `--num_proc` | `int` | `32` | 并行处理进程数。 |
-| `--max_cot_len` | `int` | `32768` | CoT 的最大 token 长度。 |
-| `--system_prompt` | `str` | （内置） | 自定义系统提示词模板。如果未指定，将使用内置默认值。 |
-| `--math_cot_prompt` | `str` | （内置） | 自定义数学 CoT 提示词。如果未指定，将使用内置默认值。 |
-| `--save_subset` | `bool` | `False` | 启用此标志，将额外保存一个较小的子集。 |
-| `--subset_size` | `int` | `256` | 子集的大小。 |
-| `--subset_output_path`| `str` | `dpo_output_subset.jsonl` | 子集输出文件的路径。|
+| 参数名                 | 类型   | 默认值                           | 描述                                                    |
+| :--------------------- | :----- | :------------------------------- | :------------------------------------------------------ |
+| `--input_path`         | `str`  | **无**                           | \*\*必需。\*\*输入 JSONL 文件路径。                     |
+| `--output_path`        | `str`  | **无**                           | \*\*必需。\*\*输出 JSONL 文件路径。                     |
+| `--model_name_or_path` | `str`  | **无**                           | \*\*必需。\*\*用于加载 tokenizer 的模型名称或本地路径。 |
+| `--cache_dir`          | `str`  | `/root/llmtuner/hfhub/cache_dir` | Hugging Face 缓存目录。                                 |
+| `--num_proc`           | `int`  | `32`                             | 并行处理进程数。                                        |
+| `--max_cot_len`        | `int`  | `32768`                          | CoT 的最大 token 长度。                                 |
+| `--system_prompt`      | `str`  | （内置）                         | 自定义系统提示词模板。如果未指定，将使用内置默认值。    |
+| `--math_cot_prompt`    | `str`  | （内置）                         | 自定义数学 CoT 提示词。如果未指定，将使用内置默认值。   |
+| `--save_subset`        | `bool` | `False`                          | 启用此标志，将额外保存一个较小的子集。                  |
+| `--subset_size`        | `int`  | `256`                            | 子集的大小。                                            |
+| `--subset_output_path` | `str`  | `dpo_output_subset.jsonl`        | 子集输出文件的路径。                                    |
 
  示例
 
