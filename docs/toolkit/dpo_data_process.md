@@ -1,6 +1,6 @@
 # DPO 数据集生成脚本介绍
 
-> 脚本地址：[Script](https://gitee.com/jianzhnie/LLMReasoning/llmreasoning/data_process/dpo_data_process.py)
+> 脚本地址：[Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/dpo_data_process.py)
 
 
 
