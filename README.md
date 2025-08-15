@@ -1,5 +1,3 @@
-![](_media/icon.svg)
-
 # LLM Reasoning Lab
 
 >
