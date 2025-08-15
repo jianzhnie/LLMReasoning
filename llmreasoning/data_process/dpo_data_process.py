@@ -14,7 +14,7 @@ The core logic involves:
       with each incorrect one.
     - If only correct CoTs are present, it creates pairs by choosing the shortest CoTs
       as "chosen" and the longest as "rejected" to promote conciseness and efficiency.
-4. Applying a model's chat template to format prompts and responses.
+4. Applying a model's chat template or a custom string format to prompts and responses.
 5. Saving the resulting DPO pairs to a new JSONL file.
 
 Author: jianzhnie
@@ -49,7 +49,15 @@ DEFAULT_SYSTEM_PROMPT: Final[str] = (
     '<answer> </answer> tags, respectively, i.e., '
     '<think> reasoning process here </think> <answer> answer here </answer>.')
 DEFAULT_MATH_COT_PROMPT: Final[str] = (
-    'Please reason step by step, and put your final answer within \boxed{}.')
+    'Please reason step by step, and put your final answer within \\boxed{}.')
+
+PROMPT_FORMAT_TEMPLATE: Final[str] = (
+    '<|im_start|>system\n{system_prompt}<|im_end|>\n'
+    '<|im_start|>user\n{user_question}\n{additional_prompt}<|im_end|>\n'
+    '<|im_start|>assistant\n')
+
+RESPONSE_FORMAT_TEMPLATE: Final[str] = (
+    '<|im_start|>assistant\n{assistant_response}<|im_end|>\n')
 
 # -----------------------------------------------------------------------------
 # Types
@@ -215,6 +223,42 @@ def apply_model_chat_template(
     )
 
 
+def apply_string_chat_template(
+    item: Dict[str, Any],
+    prompt_template: Optional[str] = None,
+    assistant_template: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    additional_prompt: Optional[str] = None,
+) -> DpoPair:
+    # Use .get() with a default to avoid KeyError if fields are missing
+    user_prompt = item.get('prompt', '')
+    chosen_cot_text = item.get('chosen', '')
+    rejected_cot_text = item.get('rejected', '')
+
+    if additional_prompt:
+        user_prompt += '\n' + additional_prompt
+
+    # 使用 .format() 格式化 Prompt
+    prompt_formatted = prompt_template.format(
+        system_prompt=system_prompt,
+        user_question=user_prompt,
+        additional_prompt=additional_prompt)
+
+    # 使用 .format() 格式化 Assistant Response
+    chosen_formatted = assistant_template.format(
+        assistant_response=chosen_cot_text)
+
+    rejected_formatted = assistant_template.format(
+        assistant_response=rejected_cot_text)
+
+    return DpoPair(
+        system=item.get('system'),
+        prompt=prompt_formatted,
+        chosen=chosen_formatted,
+        rejected=rejected_formatted,
+    )
+
+
 def generate_dpo_pairs(
     item: Dict[str, Any],
     tokenizer: PreTrainedTokenizerBase,
@@ -355,8 +399,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         '--add_generation_prompt',
         action='store_true',
         help=
-        'Whether to add a generation prompt token (e.g., `<|im_start|>assistant`).'
+        'Whether to add a generation prompt token (e.g., `<|im_start|>assistant`). This option is only effective when using the "tokenizer" method.'
     )
+    parser.add_argument(
+        '--apply_chat_template_method',
+        type=str,
+        choices=['tokenizer', 'formated'],
+        default='formated',
+        help=
+        'Method for applying chat templates. "tokenizer" uses the HuggingFace tokenizer, while "formated" uses custom string templates.'
+    )
+    parser.add_argument('--debug',
+                        action='store_true',
+                        help='Whether to use debug mode.')
     parser.add_argument('--save_subset',
                         action='store_true',
                         help='Whether to save a smaller subset of the output.')
@@ -451,15 +506,26 @@ def main() -> None:
     logger.info(
         'Post-processing DPO pairs: applying chat template to chosen and rejected fields...'
     )
-    post_process_func = partial(
-        apply_model_chat_template,
-        tokenizer=tokenizer,
-        system_prompt=system_prompt,
-        additional_prompt=math_cot_prompt,
-        add_generation_prompt=args.add_generation_prompt,
-    )
+
+    if args.apply_chat_template_method == 'tokenizer':
+        apply_chat_template_func = partial(
+            apply_model_chat_template,
+            tokenizer=tokenizer,
+            system_prompt=system_prompt,
+            additional_prompt=math_cot_prompt,
+            add_generation_prompt=args.add_generation_prompt,
+        )
+    elif args.apply_chat_template_method == 'formated':
+        apply_chat_template_func = partial(
+            apply_string_chat_template,
+            prompt_template=PROMPT_FORMAT_TEMPLATE,
+            assistant_template=RESPONSE_FORMAT_TEMPLATE,
+            system_prompt=system_prompt,
+            additional_prompt=math_cot_prompt,
+        )
+    print(apply_model_chat_template)
     final_dpo_dataset: Dataset = dpo_dataset.map(
-        post_process_func,
+        apply_chat_template_func,
         num_proc=args.num_proc,
         desc='Applying model chat templates')
 
