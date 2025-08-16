@@ -4,17 +4,16 @@ from datetime import datetime
 from typing import Any, Dict
 
 import torch
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-from transformers import AutoTokenizer, HfArgumentParser
-from vllm import LLM, SamplingParams
-
 from llmeval.utils.dataset_utils import PromptDataset, load_data
 from llmeval.utils.eval_config import EvaluationArguments
 from llmeval.utils.eval_metrics import EvaluationMetrics
 from llmeval.utils.llm_template import TEMPLATE_FACTORY
 from llmeval.utils.logger import init_logger
 from llmeval.utils.model_utils import load_hf_lm_and_tokenizer
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+from transformers import AutoTokenizer, HfArgumentParser
+from vllm import LLM, SamplingParams
 
 logger = init_logger(__name__)
 
