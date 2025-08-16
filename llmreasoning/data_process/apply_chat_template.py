@@ -8,9 +8,8 @@ It serves as a quick tool to check how different models format their
 conversational input for inference.
 """
 
-import os
-import re
 import argparse
+import os
 from typing import Dict, List, Optional, Tuple
 
 from transformers import AutoTokenizer
@@ -31,35 +30,40 @@ MODEL_PATHS: Dict[str, str] = {
 # A factory for different types of system prompts.
 # These prompts guide the model's behavior and tone.
 SYSTEM_PROMPT_FACTORY: Dict[str, Optional[str]] = {
-    'qwen_math_cot':
-        'Please reason step by step, and put your final answer within \\boxed{}.',
-    'deepseek_r1': (
-        'A conversation between User and Assistant. The User asks a question, '
-        'and the Assistant solves it. The Assistant first thinks about the '
-        'reasoning process in the mind and then provides the User with the '
-        'answer. The reasoning process is enclosed within <think> </think> '
-        'and the answer is enclosed within <answer> </answer>.'
-    ),
-    'default': 'You are a helpful assistant.',
-    'none': None,
-    'openr1_prompt': (
-        'You are a helpful AI Assistant that provides well-reasoned and detailed responses. '
-        'You first think about the reasoning process as an internal monologue and then '
-        'provide the user with the answer. Respond in the following format: '
-        '<think>\n...\n</think>\n<answer>\n...\n</answer>'
-    )
+    'deepseek_r1':
+    ('A conversation between User and Assistant. The User asks a question, '
+     'and the Assistant solves it. The Assistant first thinks about the '
+     'reasoning process in the mind and then provides the User with the '
+     'answer. The reasoning process is enclosed within <think> </think> '
+     'and the answer is enclosed within <answer> </answer>.'),
+    'openr1_prompt':
+    ('You are a helpful AI Assistant that provides well-reasoned and detailed responses. '
+     'You first think about the reasoning process as an internal monologue and then '
+     'provide the user with the answer. Respond in the following format: '
+     '<think>\n...\n</think>\n<answer>\n...\n</answer>'),
+    'default':
+    'You are a helpful assistant.',
+    'none':
+    None,
 }
 
+QWEN_MATH_COT: str = (
+    'Please reason step by step, and put your final answer within \\boxed{}.')
 
-def create_chat_messages(system_prompt: Optional[str],
-                       user_message: str,
-                       assistant_response: str) -> List[Dict[str, str]]:
+
+def create_chat_messages(
+        system_prompt: Optional[str],
+        qwen_math_cot: Optional[str] = None,
+        user_message: str = None,
+        assistant_response: str = None) -> List[Dict[str, str]]:
     """
     Creates a chat history list with a system prompt and a user-assistant turn.
 
     Args:
         system_prompt (Optional[str]): The system-level instruction for the chat.
                                         If None, the system role is omitted.
+        qwen_math_cot (Optional[str]): A specific prompt for Qwen math reasoning.
+                                       If provided, it will be appended to the user message.
         user_message (str): The user's message in the conversation.
         assistant_response (str): The assistant's response to the user.
 
@@ -70,17 +74,20 @@ def create_chat_messages(system_prompt: Optional[str],
     chat: List[Dict[str, str]] = []
     if system_prompt is not None:
         chat.append({'role': 'system', 'content': system_prompt})
-    
+    if qwen_math_cot is not None:
+        # If the Qwen math COT prompt is provided, append it to the user message.
+        user_message += '\n' + qwen_math_cot
+
+    # Append the user and assistant messages to the chat history.
     chat.append({'role': 'user', 'content': user_message})
     chat.append({'role': 'assistant', 'content': assistant_response})
-    
+
     return chat
 
 
-def apply_and_print_template(model_name: str,
-                             model_path: str,
-                             prompt_name: str,
-                             chat_history: List[Dict[str, str]]) -> None:
+def apply_model_chat_template(model_name: str, model_path: str,
+                              prompt_name: str,
+                              chat_history: List[Dict[str, str]]) -> None:
     """
     Attempts to apply a chat template to a given conversation and prints the result.
 
@@ -95,13 +102,16 @@ def apply_and_print_template(model_name: str,
     print(f"\n{'='*60}\nModel: {model_name}\nPrompt Type: {prompt_name}\n")
     try:
         # Load the tokenizer from the specified path.
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(model_path,
+                                                  trust_remote_code=True)
         # Apply the chat template to the conversation and get the formatted string.
         result = tokenizer.apply_chat_template(chat_history, tokenize=False)
         print(result)
     except Exception as e:
         # Catch and print any errors that occur during loading or templating.
-        print(f"[ERROR] Failed for {model_name} with prompt '{prompt_name}':\n{e}")
+        print(
+            f"[ERROR] Failed for {model_name} with prompt '{prompt_name}':\n{e}"
+        )
 
 
 def main():
@@ -114,16 +124,26 @@ def main():
         '--model-dir',
         type=str,
         default='/root/llmtuner/hfhub/models/',
-        help='The base directory where models are stored. Defaults to a local path.')
-    
+        help=
+        'The base directory where models are stored. Defaults to a local path.'
+    )
+    parser.add_argument(
+        '--use-qwen-math-cot',
+        type=bool,
+        default=True,
+        help='The Qwen math COT prompt to append to the user message.')
+
     args = parser.parse_args()
     model_dir = args.model_dir
 
+    # If the Qwen math COT prompt is to be used, set it accordingly.
+    qwen_math_cot = QWEN_MATH_COT if args.use_qwen_math_cot else None
+
+    # Full user message to be used in the chat history.
     # Sample conversation to use for all models and prompts.
     user_message = (
         'Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May.'
-        'How many clips did Natalia sell altogether in April and May?'
-    )
+        'How many clips did Natalia sell altogether in April and May?')
     assistant_response = (
         'Natalia sold 48/2 = 24 clips in May.\n'
         'Natalia sold 48+24 = 72 clips altogether in April and May.\n\\boxed{72}'
@@ -132,23 +152,23 @@ def main():
     # Iterate through each model and each system prompt, then apply the template.
     for model_name, model_path_suffix in MODEL_PATHS.items():
         full_model_path = os.path.join(model_dir, model_path_suffix)
-        
+
         # Check if the local model path exists before trying to load it.
         if not os.path.exists(full_model_path):
-            print(f"Skipping {model_name}: Local path not found at '{full_model_path}'")
+            print(
+                f"Skipping {model_name}: Local path not found at '{full_model_path}'"
+            )
             continue
 
         for prompt_name, system_prompt in SYSTEM_PROMPT_FACTORY.items():
-            # For the 'qwen_math_cot' prompt, we need to add a special instruction
-            # to the user message content.
-            if prompt_name == 'qwen_math_cot':
-                full_user_message = user_message + '\n' + SYSTEM_PROMPT_FACTORY['qwen_math_cot']
-                chat_history = create_chat_messages(system_prompt, full_user_message, assistant_response)
-            else:
-                chat_history = create_chat_messages(system_prompt, user_message, assistant_response)
-            
+
+            chat_messages = create_chat_messages(system_prompt, qwen_math_cot,
+                                                 user_message,
+                                                 assistant_response)
+
             # Call the main function to apply the template
-            apply_and_print_template(model_name, full_model_path, prompt_name, chat_history)
+            apply_model_chat_template(model_name, full_model_path, prompt_name,
+                                      chat_messages)
 
 
 if __name__ == '__main__':
