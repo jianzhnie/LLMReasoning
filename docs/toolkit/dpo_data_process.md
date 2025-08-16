@@ -191,7 +191,9 @@ python dpo_data_process.py \
   --subset_size 500 \
   --subset_output_path dpo_data_subset.jsonl
 ```
+这将会：
 
-这个示例展示了如何灵活地配置脚本以满足你的特定需求。
-
-希望这个说明能帮助你更好地理解和使用这个脚本。
+  * 使用自定义的系统提示词和数学 CoT 提示词。
+  * 将 CoT 的最大长度限制为 `16384` tokens。
+  * 生成并保存一个名为 `dpo_data_custom_prompt.jsonl` 的 DPO 数据集。
+  * 同时保存一个名为 `dpo_data_subset.jsonl` 的大小为 `500` 的子集。
