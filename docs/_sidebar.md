@@ -7,6 +7,7 @@
   - [多机多卡分布式进程Kill脚本](toolkit/kill_multi_nodes.md)
 
 - 算法实践
+  - [大语言模型（LLM）训练与运维技术指南](toolkit/llm_toolkit_book.md)
 
 - 其他工具
   - [大语言模型聊天模板](toolkit/apply_chat_template.md) 

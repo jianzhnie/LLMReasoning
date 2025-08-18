@@ -11,6 +11,7 @@
 [多机多卡分布式进程Kill脚本](toolkit/kill_multi_nodes.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/llmtoolkit/kill-pid/kill_multi_nodes.sh)
 
 ## 算法实践
+[大语言模型（LLM）训练与运维技术指南](toolkit/llm_toolkit_book.md)
 
 ## 其他工具
 
