@@ -4,14 +4,13 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, List
 
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-
 from llmeval.utils.dataset_utils import PromptDataset, load_data
 from llmeval.utils.eval_config import EvaluationArguments
 from llmeval.utils.eval_metrics import EvaluationMetrics
 from llmeval.utils.llm_template import TEMPLATE_FACTORY
 from llmeval.utils.logger import init_logger
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 logger = init_logger(__name__)
 

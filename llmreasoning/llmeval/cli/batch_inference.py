@@ -4,13 +4,12 @@ from typing import Dict, List, Tuple
 import torch
 from accelerate import Accelerator
 from datasets import Dataset, load_dataset
+from llmeval.utils.eval_config import EvaluationArguments
+from llmeval.utils.logger import init_logger
 from torch import Tensor
 from torch.utils.data import DataLoader
 from transformers import (AutoModelForCausalLM, AutoTokenizer, PreTrainedModel,
                           PreTrainedTokenizer)
-
-from llmeval.utils.eval_config import EvaluationArguments
-from llmeval.utils.logger import init_logger
 
 logger = init_logger(__name__)
 

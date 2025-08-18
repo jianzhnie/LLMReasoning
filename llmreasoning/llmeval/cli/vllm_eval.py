@@ -1,9 +1,8 @@
 from typing import List
 
+from llmeval.utils.eval_config import EvaluationArguments
 from transformers import AutoTokenizer, HfArgumentParser
 from vllm import LLM, SamplingParams
-
-from llmeval.utils.eval_config import EvaluationArguments
 
 from .base_eval import BaseEvaluator
 

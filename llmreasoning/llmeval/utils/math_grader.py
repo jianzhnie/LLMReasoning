@@ -1,10 +1,9 @@
 from typing import List
 
 from latex2sympy2_extended import NormalizationConfig
+from llmeval.utils.logger import init_logger
 from math_verify.grader import verify
 from math_verify.parser import LatexExtractionConfig, parse
-
-from llmeval.utils.logger import init_logger
 
 logger = init_logger(__name__)
 

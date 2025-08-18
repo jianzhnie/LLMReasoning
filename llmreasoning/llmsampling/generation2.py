@@ -4,8 +4,8 @@ import torch
 
 
 def multinomial_sample_one(
-    probs: torch.Tensor, rng: Optional[torch.Generator] = None
-) -> torch.Tensor:
+        probs: torch.Tensor,
+        rng: Optional[torch.Generator] = None) -> torch.Tensor:
     q = torch.empty_like(probs).exponential_(1, generator=rng)
     return torch.argmax(probs / q, dim=-1, keepdim=True).to(dtype=torch.long)
 
@@ -20,7 +20,7 @@ def logits_to_probs(
     if top_k is not None:
         v, _ = torch.topk(logits, k=min(top_k, logits.size(-1)))
         pivot = v.select(dim=-1, index=-1).unsqueeze(-1)
-        logits = torch.where(logits < pivot, -float("Inf"), logits)
+        logits = torch.where(logits < pivot, -float('Inf'), logits)
 
     probs = torch.nn.functional.softmax(logits, dim=-1)
     return probs

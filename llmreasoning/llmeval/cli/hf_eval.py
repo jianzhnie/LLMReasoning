@@ -1,9 +1,8 @@
 from typing import List
 
 import torch
-from transformers import HfArgumentParser
-
 from llmeval.utils.eval_config import EvaluationArguments
+from transformers import HfArgumentParser
 
 from ..utils.model_utils import load_hf_lm_and_tokenizer
 from .base_eval import BaseEvaluator
