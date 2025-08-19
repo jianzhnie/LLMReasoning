@@ -2,7 +2,9 @@
 
 [DPO 数据集生成脚本](toolkit/dpo_data_process.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/dpo_data_process.py)
 
-[RL Reasoning 数据集生成脚本](toolkit/reasoning_data_process.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/reasoning_data_process.py)
+[RL Reasoning 数据集生成脚本](toolkit/reasoning_data_process.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/rl_data_process.py)
+
+[RL Reasoning 数据集生成脚本多进程版本](toolkit/reasoning_data_process.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/rl_data_process_faster.py)
 
 ## 分布式训练
 
