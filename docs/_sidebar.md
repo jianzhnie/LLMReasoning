@@ -9,6 +9,8 @@
 
 - 算法实践
   - [大语言模型（LLM）训练与运维技术指南](toolkit/llm_toolkit_book.md)
+  - [SimPO 代码解析](toolkit/SimPO代码解析.md)
+  - [SimPO 高效优化策略](toolkit/SimPO高效优化策略.md)
 
 - 其他工具
   - [大语言模型聊天模板](toolkit/apply_chat_template.md)
