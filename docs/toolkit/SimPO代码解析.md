@@ -166,12 +166,14 @@ class SimPOTrainer(BaseTrainer):
 
 该函数首先计算优选（chosen）和劣选（rejected）响应的平均对数概率之差。这是 SimPO 算法中的关键对比信号。SimPO 的核心在于**使用自身的平均对数概率作为隐式奖励**，即：
 
-$$r_{\text{SimPO}}(x,y) = \frac{\beta}{|y|} \log \pi_\theta(y|x)$$
-
+$$
+r_{\text{SimPO}}(x,y) = \frac{\beta}{|y|} \log \pi_\theta(y|x)
+$$
 这与 DPO 使用优选/劣选响应与参考模型之间的对数比率作为奖励：
 
-$$\beta \log \left( \frac{\pi_\theta(y|x)}{\pi_{\text{ref}}(y|x)} \right)$$
-
+$$
+\beta \log \left( \frac{\pi_\theta(y|x)}{\pi_{\text{ref}}(y|x)} \right)
+$$
 有本质区别。SimPO 的设计消除了对额外参考模型的依赖，显著节省了计算和内存资源，使其训练更加高效。
 
 接着，代码引入了“目标奖励边际”（target reward margin）超参数 `gamma_beta_ratio`。该参数的作用是确保优选和劣选响应之间的奖励差值超过一个设定阈值。这鼓励模型在优选和劣选之间建立更大的、更明确的区分度，使得模型被惩罚的程度与这个边际直接相关。
