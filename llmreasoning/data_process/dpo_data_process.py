@@ -56,10 +56,10 @@ DEFAULT_MATH_COT_PROMPT: Final[str] = (
 # These are fallback templates if the tokenizer doesn't have a chat template.
 PROMPT_FORMAT_TEMPLATE: Final[str] = (
     '<|im_start|>system\n{system_prompt}<|im_end|>\n'
-    '<|im_start|>user\n{user_question}\n{additional_prompt}<|im_end|>\n'
-    '<|im_start|>assistant\n')
+    '<|im_start|>user\n{user_question}\n{additional_prompt}<|im_end|>\n')
 
-RESPONSE_FORMAT_TEMPLATE: Final[str] = '{assistant_response}<|im_end|>\n'
+RESPONSE_FORMAT_TEMPLATE: Final[str] = (
+    '<|im_start|>assistant\n{assistant_response}<|im_end|>\n')
 
 # -----------------------------------------------------------------------------
 # Types
@@ -192,6 +192,83 @@ def get_iter_cots(
         return (v for v in cots_field if isinstance(v, dict))
     # Return an empty iterator for any other type
     return iter([])
+
+
+def format_chat_messages(
+    messages: List[Dict[str, str]],
+    tokenizer: PreTrainedTokenizerBase,
+    add_generation_prompt: bool,
+) -> str:
+    """Helper function to format messages using a tokenizer's chat template."""
+    return tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=add_generation_prompt)
+
+
+def format_dpo_pair(
+    question: str,
+    chosen_cot: CotWithLength,
+    rejected_cot: CotWithLength,
+    tokenizer: PreTrainedTokenizerBase,
+    system_prompt: Optional[str],
+    additional_prompt: Optional[str],
+    apply_chat_template_method: str,
+    add_generation_prompt: bool,
+) -> DpoPair:
+    """
+    Helper function to format a single DPO pair based on the chosen method.
+    """
+    # Create the full user prompt by combining the question and additional prompt
+    full_user_prompt = f'{question}\n{additional_prompt}' if additional_prompt else question
+
+    # Construct metadata
+    meta_data = MetaData(
+        chosen_cot_len=chosen_cot['cot_token_len'],
+        rejected_cot_len=rejected_cot['cot_token_len'],
+        chosen_is_correct=chosen_cot['is_correct'],
+        rejected_is_correct=rejected_cot['is_correct'],
+    )
+
+    if apply_chat_template_method == 'tokenizer':
+        # Apply the HuggingFace tokenizer's chat template
+        prompt_messages: List[Dict[str, str]] = []
+        if system_prompt:
+            prompt_messages.append({
+                'role': 'system',
+                'content': system_prompt
+            })
+        prompt_messages.append({'role': 'user', 'content': full_user_prompt})
+
+        chosen_messages = [{'role': 'assistant', 'content': chosen_cot['cot']}]
+        rejected_messages = [{
+            'role': 'assistant',
+            'content': rejected_cot['cot']
+        }]
+
+        prompt_formatted = format_chat_messages(prompt_messages, tokenizer,
+                                                add_generation_prompt)
+        chosen_formatted = format_chat_messages(chosen_messages, tokenizer,
+                                                False)
+        rejected_formatted = format_chat_messages(rejected_messages, tokenizer,
+                                                  False)
+    else:  # 'formatted' string templates
+        # Format the prompt using a custom string template
+        prompt_formatted = PROMPT_FORMAT_TEMPLATE.format(
+            system_prompt=system_prompt,
+            user_question=question,
+            additional_prompt=additional_prompt,
+        )
+        # Format the chosen and rejected responses using a custom string template
+        chosen_formatted = RESPONSE_FORMAT_TEMPLATE.format(
+            assistant_response=chosen_cot['cot'])
+        rejected_formatted = RESPONSE_FORMAT_TEMPLATE.format(
+            assistant_response=rejected_cot['cot'])
+
+    return DpoPair(
+        prompt=prompt_formatted,
+        chosen=chosen_formatted,
+        rejected=rejected_formatted,
+        metadata=meta_data,
+    )
 
 
 def apply_model_chat_template(
@@ -491,7 +568,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help='An additional prompt to append to the user question, e.g., '
         '"Please reason step by step...". Default value is built-in.')
     parser.add_argument(
-        '--apply_chat_template',
+        '--apply_model_chat_template',
         action='store_true',
         help='Whether to use the tokenizer\'s chat template for formatting.')
     parser.add_argument(
@@ -625,7 +702,7 @@ def main() -> None:
             tokenizer=tokenizer,
             system_prompt=system_prompt,
             additional_prompt=math_cot_prompt,
-            apply_chat_template=args.apply_chat_template,
+            apply_chat_template=args.apply_model_chat_template,
             add_generation_prompt=args.add_generation_prompt,
         )
     elif args.apply_chat_template_method == 'formated':
