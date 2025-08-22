@@ -21,7 +21,6 @@ Author: jianzhnie
 """
 
 import argparse
-import json
 import logging
 from functools import partial
 from itertools import chain, product
@@ -67,6 +66,21 @@ RESPONSE_FORMAT_TEMPLATE: Final[str] = (
 # -----------------------------------------------------------------------------
 
 
+# Internal type for CoT data with added token length
+class CotWithLength(TypedDict):
+    """Internal type for a CoT entry with its token length."""
+    cot: str
+    is_correct: bool
+    cot_token_len: int
+
+
+class MetaData(TypedDict):
+    chosen_cot_len: int
+    rejected_cot_len: int
+    chosen_is_correct: bool
+    rejected_is_correct: bool
+
+
 class DpoPair(TypedDict):
     """
     Defines the structure of a DPO training pair.
@@ -83,10 +97,7 @@ class DpoPair(TypedDict):
     ground_truth: str
     chosen: str
     rejected: str
-    chosen_cot_len: int
-    rejected_cot_len: int
-    chosen_is_correct: bool
-    rejected_is_correct: bool
+    metadata: MetaData
 
 
 # -----------------------------------------------------------------------------
@@ -126,6 +137,8 @@ def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
     Returns:
         int: The number of tokens.
     """
+    if not text:
+        return 0
     try:
         # Use tokenizer.__call__ for better handling of special tokens and padding
         encoded = tokenizer(
@@ -196,10 +209,12 @@ def apply_model_chat_template(
     chosen_cot_text: str = item.get('chosen', '')
     rejected_cot_text: str = item.get('rejected', '')
 
+    # Apply the additional prompt to the user question
     if additional_prompt:
-        user_prompt += '\n' + additional_prompt
+        user_prompt += f'\n{additional_prompt}'
 
     if apply_chat_template:
+        # Use the HuggingFace tokenizer's chat template
         prompt_messages: List[Dict[str, str]] = []
         if system_prompt:
             prompt_messages.append({
@@ -239,6 +254,7 @@ def apply_model_chat_template(
             ground_truth=ground_truth,
             chosen=chosen_formatted,
             rejected=rejected_formatted,
+            metadata=item.get('metadata', ''),
         )
     return DpoPair(
         system=system_prompt,
@@ -246,6 +262,7 @@ def apply_model_chat_template(
         ground_truth=ground_truth,
         chosen=chosen_cot_text,
         rejected=rejected_cot_text,
+        metadata=item.get('metadata', ''),
     )
 
 
@@ -281,7 +298,6 @@ def apply_string_chat_template(
         user_question=user_prompt,
         additional_prompt=additional_prompt,
     )
-
     # Format the chosen and rejected responses
     chosen_formatted: str = assistant_template.format(
         assistant_response=chosen_cot_text, )
@@ -294,6 +310,7 @@ def apply_string_chat_template(
         ground_truth=ground_truth,
         chosen=chosen_formatted,
         rejected=rejected_formatted,
+        metadata=item.get('metadata', ''),
     )
 
 
@@ -329,82 +346,75 @@ def generate_dpo_pairs(
 
     raw_cots: List[Dict[str, Any]] = list(get_iter_cots(item.get('cots')))
     if not raw_cots:
+        logger.info(f"No CoTs found for question: '{question[:50]}...'")
         return {'pairs': []}
 
-    # Filter out CoTs that exceed the maximum length
-    cot_lens = [
-        get_token_len(cot.get('cot', ''), tokenizer) for cot in raw_cots
-    ]
-    filtered_cots: List[Dict[str, Any]] = raw_cots[cot_lens < max_cot_len]
+    # Filter and add token lengths in one pass
+    cots_with_len: List[CotWithLength] = []
+    for cot in raw_cots:
+        cot_text = str(cot.get('cot', '')).strip()
+        if not cot_text:
+            continue
+        cot_len = get_token_len(cot_text, tokenizer)
+        if cot_len <= max_cot_len:
+            cots_with_len.append(
+                CotWithLength(
+                    cot=cot_text,
+                    is_correct=item_as_bool(cot.get('is_correct')),
+                    cot_token_len=cot_len,
+                ))
 
-    # Differentiate between correct and incorrect CoTs based on the boolean value
-    correct_cots: List[Dict[str, Any]] = [
-        cot for cot in filtered_cots if item_as_bool(cot.get('is_correct'))
-    ]
-    incorrect_cots: List[Dict[str, Any]] = [
-        cot for cot in filtered_cots if not item_as_bool(cot.get('is_correct'))
-    ]
+    # Differentiate between correct and incorrect CoTs
+    correct_cots = [cot for cot in cots_with_len if cot['is_correct']]
+    incorrect_cots = [cot for cot in cots_with_len if not cot['is_correct']]
 
     dpo_pairs: List[DpoPair] = []
 
     # Case 1: Both correct and incorrect CoTs are available
     if correct_cots and incorrect_cots:
         for chosen_cot, rejected_cot in product(correct_cots, incorrect_cots):
-            ch_cot = str(chosen_cot.get('cot', '')).strip()
-            re_cot = str(rejected_cot.get('cot', '')).strip()
-            ch_cot_len = get_token_len(ch_cot.get('cot', ''), tokenizer)
-            re_cot_len = get_token_len(re_cot.get('cot', ''), tokenizer)
-            if ch_cot and re_cot and ch_cot != re_cot:
+            if chosen_cot['cot'] != rejected_cot['cot']:
+                meta_data = MetaData(
+                    chosen_cot_len=chosen_cot.cot_token_len,
+                    rejected_cot_len=rejected_cot.cot_token_len,
+                    chosen_is_correct=chosen_cot.is_correct,
+                    rejected_is_correct=rejected_cot.is_correct,
+                )
                 dpo_pairs.append(
-                    DpoPair(
-                        system=system_prompt,
-                        prompt=question,
-                        ground_truth=ground_truth,
-                        chosen=ch_cot,
-                        rejected=re_cot,
-                        chosen_cot_len=ch_cot_len,
-                        rejected_cot_len=re_cot_len,
-                        chosen_is_correct=True,
-                        rejected_is_correct=False,
-                    ))
-
+                    DpoPair(system=system_prompt,
+                            prompt=question,
+                            ground_truth=ground_truth,
+                            chosen=chosen_cot['cot'],
+                            rejected=rejected_cot['cot'],
+                            metadata=meta_data), )
     # Case 2: Only correct CoTs are available, pair shortest vs. longest
     elif correct_cots and not incorrect_cots:
-        cots_with_len: List[Dict[str, Any]] = [{
-            **cot, 'cot_token_len':
-            get_token_len(cot.get('cot', ''), tokenizer)
-        } for cot in correct_cots if cot.get('cot')]
-
-        sorted_by_len: List[Dict[str, Any]] = sorted(
-            cots_with_len, key=lambda x: x['cot_token_len'])
-        num_cots: int = len(sorted_by_len)
-
-        # We need at least 4 CoTs to get two chosen and two rejected candidates.
         # This prevents edge cases where the shortest and longest might be the same.
-        if num_cots < 4:
+        # We need at least 2 CoTs to form a pair.
+        if len(correct_cots) < 2:
             return {'pairs': []}
+
+        sorted_by_len: List[CotWithLength] = sorted(
+            correct_cots, key=lambda x: x['cot_token_len'])
 
         chosen_candidates: List[Dict[str, Any]] = sorted_by_len[:2]
         rejected_candidates: List[Dict[str, Any]] = sorted_by_len[-2:]
         for chosen_cot, rejected_cot in product(chosen_candidates,
                                                 rejected_candidates):
-            ch_cot = str(chosen_cot.get('cot', '')).strip()
-            re_cot = str(rejected_cot.get('cot', '')).strip()
-            ch_cot_len = get_token_len(ch_cot.get('cot', ''), tokenizer)
-            re_cot_len = get_token_len(re_cot.get('cot', ''), tokenizer)
-            if ch_cot and re_cot and ch_cot != re_cot:
+            if chosen_cot['cot'] != rejected_cot['cot']:
+                meta_data = MetaData(
+                    chosen_cot_len=chosen_cot.cot_token_len,
+                    rejected_cot_len=rejected_cot.cot_token_len,
+                    chosen_is_correct=chosen_cot.is_correct,
+                    rejected_is_correct=rejected_cot.is_correct,
+                )
                 dpo_pairs.append(
-                    DpoPair(
-                        system=system_prompt,
-                        prompt=question,
-                        ground_truth=ground_truth,
-                        chosen=ch_cot,
-                        rejected=re_cot,
-                        chosen_cot_len=ch_cot_len,
-                        rejected_cot_len=re_cot_len,
-                        chosen_is_correct=True,
-                        rejected_is_correct=True,
-                    ))
+                    DpoPair(system=system_prompt,
+                            prompt=question,
+                            ground_truth=ground_truth,
+                            chosen=chosen_cot['cot'],
+                            rejected=rejected_cot['cot'],
+                            metadata=meta_data), )
 
     return {'pairs': dpo_pairs}
 
@@ -449,6 +459,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         default=None,
                         help='Math CoT prompt. Default value is built-in.')
     parser.add_argument(
+        '--apply_chat_template',
+        action='store_true',
+        help='Whether to use the tokenizer\'s chat template for formatting.')
+    parser.add_argument(
         '--add_generation_prompt',
         action='store_true',
         help=
@@ -462,9 +476,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=
         'Method for applying chat templates. "tokenizer" uses the HuggingFace tokenizer, while "formated" uses custom string templates.'
     )
-    parser.add_argument('--apply_model_chat_template',
-                        action='store_true',
-                        help='Whether applying model chat template or not. ')
     parser.add_argument('--debug',
                         action='store_true',
                         help='Whether to use debug mode.')
@@ -521,6 +532,9 @@ def main() -> None:
 
     # --- Step 2: Load the raw dataset ---
     input_path = Path(args.input_path)
+    if not input_path.exists():
+        logger.error(f'Input file not found: {input_path}')
+        return
     logger.info(f'Loading dataset from {input_path}')
     try:
         dataset: Dataset = load_dataset(
@@ -585,7 +599,7 @@ def main() -> None:
     final_dpo_dataset: Dataset = dpo_dataset.map(
         apply_chat_template_func,
         num_proc=args.num_proc,
-        desc='Applying model chat templates',
+        desc='Applying chat templates',
     )
 
     # --- Step 6: Save the final dataset ---
