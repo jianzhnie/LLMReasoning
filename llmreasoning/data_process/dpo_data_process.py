@@ -21,9 +21,11 @@ Author: jianzhnie
 """
 
 import argparse
+import json
 import logging
 from functools import partial
 from itertools import chain, product
+from pathlib import Path
 from typing import (Any, Dict, Final, Iterable, List, MutableMapping, Optional,
                     TypedDict, Union)
 
@@ -51,6 +53,7 @@ DEFAULT_SYSTEM_PROMPT: Final[str] = (
 DEFAULT_MATH_COT_PROMPT: Final[str] = (
     'Please reason step by step, and put your final answer within \\boxed{}.')
 
+# String templates for formatting
 PROMPT_FORMAT_TEMPLATE: Final[str] = (
     '<|im_start|>system\n{system_prompt}<|im_end|>\n'
     '<|im_start|>user\n{user_question}\n{additional_prompt}<|im_end|>\n'
@@ -71,13 +74,19 @@ class DpoPair(TypedDict):
     Attributes:
         system (Optional[str]): An optional system prompt.
         prompt (str): The formatted user prompt.
+        ground_truth (str): The ground truth from the dataset.
         chosen (str): The preferred (correct) response.
         rejected (str): The dis-preferred (incorrect) response.
     """
     system: Optional[str]
     prompt: str
+    ground_truth: str
     chosen: str
     rejected: str
+    chosen_cot_len: int
+    rejected_cot_len: int
+    chosen_is_correct: bool
+    rejected_is_correct: bool
 
 
 # -----------------------------------------------------------------------------
@@ -101,7 +110,7 @@ def item_as_bool(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return value != 0
     if isinstance(value, str):
-        s = value.strip().lower()
+        s: str = value.strip().lower()
         return s in {'1', 'true', 't', 'yes', 'y'}
     return bool(value)
 
@@ -119,9 +128,11 @@ def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
     """
     try:
         # Use tokenizer.__call__ for better handling of special tokens and padding
-        encoded = tokenizer(text,
-                            add_special_tokens=False,
-                            return_attention_mask=False)
+        encoded = tokenizer(
+            text,
+            add_special_tokens=False,
+            return_attention_mask=False,
+        )
         return len(encoded.get('input_ids', []))
     except Exception as e:
         logger.warning(
@@ -142,7 +153,6 @@ def get_iter_cots(
 
     Returns:
         Iterable[MutableMapping[str, Any]]: An iterator over the valid CoT entries.
-
     """
     if isinstance(cots_field, dict):
         # Handle cases where 'cots' is a dict of CoTs
@@ -159,6 +169,7 @@ def apply_model_chat_template(
     tokenizer: PreTrainedTokenizerBase,
     system_prompt: Optional[str] = None,
     additional_prompt: Optional[str] = None,
+    apply_chat_template: bool = False,
     add_generation_prompt: bool = True,
 ) -> DpoPair:
     """
@@ -176,84 +187,111 @@ def apply_model_chat_template(
         add_generation_prompt (bool): If True, the template will include a prompt for
                                       the assistant's turn, such as '<|im_start|>assistant\n'.
     Returns:
-        DpoPair: The dictionary with 'chosen' and 'rejected' fields now formatted
-                 for the assistant's turn, with a TypedDict signature.
+        DpoPair: The dictionary with 'chosen' and 'rejected' fields now formatted,
+                 with a TypedDict signature.
     """
     # Use .get() with a default to avoid KeyError if fields are missing
-    user_prompt = item.get('prompt', '')
-    chosen_cot_text = item.get('chosen', '')
-    rejected_cot_text = item.get('rejected', '')
+    user_prompt: str = item.get('prompt', '')
+    ground_truth: str = item.get('ground_truth', '')
+    chosen_cot_text: str = item.get('chosen', '')
+    rejected_cot_text: str = item.get('rejected', '')
 
     if additional_prompt:
         user_prompt += '\n' + additional_prompt
 
-    prompt_messages: List[Dict[str, str]] = []
-    if system_prompt:
-        prompt_messages.append({'role': 'system', 'content': system_prompt})
+    if apply_chat_template:
+        prompt_messages: List[Dict[str, str]] = []
+        if system_prompt:
+            prompt_messages.append({
+                'role': 'system',
+                'content': system_prompt
+            })
 
-    prompt_messages.append({'role': 'user', 'content': user_prompt})
+        prompt_messages.append({'role': 'user', 'content': user_prompt})
 
-    chosen_messages: List[Dict[str, str]] = [{
-        'role': 'assistant',
-        'content': chosen_cot_text
-    }]
-    rejected_messages: List[Dict[str, str]] = [{
-        'role': 'assistant',
-        'content': rejected_cot_text
-    }]
+        chosen_messages: List[Dict[str, str]] = [{
+            'role': 'assistant',
+            'content': chosen_cot_text
+        }]
+        rejected_messages: List[Dict[str, str]] = [{
+            'role': 'assistant',
+            'content': rejected_cot_text
+        }]
 
-    # Apply template to User prompt
-    prompt_formatted: str = tokenizer.apply_chat_template(
-        prompt_messages,
-        tokenize=False,
-        add_generation_prompt=add_generation_prompt,
-    )
+        # Apply template to User prompt
+        # The prompt_formatted should end with the start of the assistant's turn
+        prompt_formatted: str = tokenizer.apply_chat_template(
+            prompt_messages,
+            tokenize=False,
+            add_generation_prompt=add_generation_prompt,
+        )
 
-    # Apply template to assistant responses
-    chosen_formatted = tokenizer.apply_chat_template(
-        chosen_messages, tokenize=False, add_generation_prompt=False)
-    rejected_formatted = tokenizer.apply_chat_template(
-        rejected_messages, tokenize=False, add_generation_prompt=False)
+        # Apply template to assistant responses. This should NOT include the generation prompt
+        # as it's already part of the `prompt_formatted` string.
+        chosen_formatted = tokenizer.apply_chat_template(
+            chosen_messages, tokenize=False, add_generation_prompt=False)
+        rejected_formatted = tokenizer.apply_chat_template(
+            rejected_messages, tokenize=False, add_generation_prompt=False)
 
+        return DpoPair(
+            system=system_prompt,
+            prompt=prompt_formatted,
+            ground_truth=ground_truth,
+            chosen=chosen_formatted,
+            rejected=rejected_formatted,
+        )
     return DpoPair(
-        system=item.get('system'),
-        prompt=prompt_formatted,
-        chosen=chosen_formatted,
-        rejected=rejected_formatted,
+        system=system_prompt,
+        prompt=user_prompt,
+        ground_truth=ground_truth,
+        chosen=chosen_cot_text,
+        rejected=rejected_cot_text,
     )
 
 
 def apply_string_chat_template(
     item: Dict[str, Any],
-    prompt_template: Optional[str] = None,
-    assistant_template: Optional[str] = None,
+    prompt_template: str,
+    assistant_template: str,
     system_prompt: Optional[str] = None,
     additional_prompt: Optional[str] = None,
 ) -> DpoPair:
+    """
+    Formats the user's prompt and chosen/rejected responses using custom string templates.
+
+    Args:
+        item (Dict[str, Any]): A dictionary containing 'chosen' and 'rejected' fields with raw text.
+        prompt_template (str): The string template for the full user prompt.
+        assistant_template (str): The string template for the assistant's response.
+        system_prompt (Optional[str]): The system prompt to be included.
+        additional_prompt (Optional[str]): An optional prompt to append to the user's text.
+
+    Returns:
+        DpoPair: The dictionary with formatted prompts and responses.
+    """
     # Use .get() with a default to avoid KeyError if fields are missing
-    user_prompt = item.get('prompt', '')
-    chosen_cot_text = item.get('chosen', '')
-    rejected_cot_text = item.get('rejected', '')
+    user_prompt: str = item.get('prompt', '')
+    ground_truth: str = item.get('ground_truth', '')
+    chosen_cot_text: str = item.get('chosen', '')
+    rejected_cot_text: str = item.get('rejected', '')
 
-    if additional_prompt:
-        user_prompt += '\n' + additional_prompt
-
-    # 使用 .format() 格式化 Prompt
-    prompt_formatted = prompt_template.format(
+    # Format the prompt
+    prompt_formatted: str = prompt_template.format(
         system_prompt=system_prompt,
         user_question=user_prompt,
-        additional_prompt=additional_prompt)
+        additional_prompt=additional_prompt,
+    )
 
-    # 使用 .format() 格式化 Assistant Response
-    chosen_formatted = assistant_template.format(
-        assistant_response=chosen_cot_text)
-
-    rejected_formatted = assistant_template.format(
-        assistant_response=rejected_cot_text)
+    # Format the chosen and rejected responses
+    chosen_formatted: str = assistant_template.format(
+        assistant_response=chosen_cot_text, )
+    rejected_formatted: str = assistant_template.format(
+        assistant_response=rejected_cot_text, )
 
     return DpoPair(
-        system=item.get('system'),
+        system=system_prompt,
         prompt=prompt_formatted,
+        ground_truth=ground_truth,
         chosen=chosen_formatted,
         rejected=rejected_formatted,
     )
@@ -283,6 +321,8 @@ def generate_dpo_pairs(
         the generated DPO pairs under the key "pairs".
     """
     question: Optional[str] = item.get('question')
+    ground_truth: Optional[str] = item.get('ground_truth')
+
     if not isinstance(question, str) or not question.strip():
         logger.warning("Skipping item without a valid 'question' field.")
         return {'pairs': []}
@@ -292,10 +332,10 @@ def generate_dpo_pairs(
         return {'pairs': []}
 
     # Filter out CoTs that exceed the maximum length
-    filtered_cots: List[Dict[str, Any]] = [
-        cot for cot in raw_cots
-        if get_token_len(cot.get('cot', ''), tokenizer) <= max_cot_len
+    cot_lens = [
+        get_token_len(cot.get('cot', ''), tokenizer) for cot in raw_cots
     ]
+    filtered_cots: List[Dict[str, Any]] = raw_cots[cot_lens < max_cot_len]
 
     # Differentiate between correct and incorrect CoTs based on the boolean value
     correct_cots: List[Dict[str, Any]] = [
@@ -312,17 +352,24 @@ def generate_dpo_pairs(
         for chosen_cot, rejected_cot in product(correct_cots, incorrect_cots):
             ch_cot = str(chosen_cot.get('cot', '')).strip()
             re_cot = str(rejected_cot.get('cot', '')).strip()
+            ch_cot_len = get_token_len(ch_cot.get('cot', ''), tokenizer)
+            re_cot_len = get_token_len(re_cot.get('cot', ''), tokenizer)
             if ch_cot and re_cot and ch_cot != re_cot:
                 dpo_pairs.append(
                     DpoPair(
                         system=system_prompt,
                         prompt=question,
+                        ground_truth=ground_truth,
                         chosen=ch_cot,
                         rejected=re_cot,
+                        chosen_cot_len=ch_cot_len,
+                        rejected_cot_len=re_cot_len,
+                        chosen_is_correct=True,
+                        rejected_is_correct=False,
                     ))
 
     # Case 2: Only correct CoTs are available, pair shortest vs. longest
-    elif correct_cots:
+    elif correct_cots and not incorrect_cots:
         cots_with_len: List[Dict[str, Any]] = [{
             **cot, 'cot_token_len':
             get_token_len(cot.get('cot', ''), tokenizer)
@@ -339,18 +386,24 @@ def generate_dpo_pairs(
 
         chosen_candidates: List[Dict[str, Any]] = sorted_by_len[:2]
         rejected_candidates: List[Dict[str, Any]] = sorted_by_len[-2:]
-
         for chosen_cot, rejected_cot in product(chosen_candidates,
                                                 rejected_candidates):
             ch_cot = str(chosen_cot.get('cot', '')).strip()
             re_cot = str(rejected_cot.get('cot', '')).strip()
+            ch_cot_len = get_token_len(ch_cot.get('cot', ''), tokenizer)
+            re_cot_len = get_token_len(re_cot.get('cot', ''), tokenizer)
             if ch_cot and re_cot and ch_cot != re_cot:
                 dpo_pairs.append(
                     DpoPair(
                         system=system_prompt,
                         prompt=question,
+                        ground_truth=ground_truth,
                         chosen=ch_cot,
                         rejected=re_cot,
+                        chosen_cot_len=ch_cot_len,
+                        rejected_cot_len=re_cot_len,
+                        chosen_is_correct=True,
+                        rejected_is_correct=True,
                     ))
 
     return {'pairs': dpo_pairs}
@@ -409,6 +462,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=
         'Method for applying chat templates. "tokenizer" uses the HuggingFace tokenizer, while "formated" uses custom string templates.'
     )
+    parser.add_argument('--apply_model_chat_template',
+                        action='store_true',
+                        help='Whether applying model chat template or not. ')
     parser.add_argument('--debug',
                         action='store_true',
                         help='Whether to use debug mode.')
@@ -442,8 +498,8 @@ def main() -> None:
     args = build_arg_parser().parse_args()
 
     # Resolve prompts (use defaults only if user didn't pass them)
-    system_prompt = args.system_prompt or DEFAULT_SYSTEM_PROMPT
-    math_cot_prompt = args.math_cot_prompt or DEFAULT_MATH_COT_PROMPT
+    system_prompt: str = args.system_prompt or DEFAULT_SYSTEM_PROMPT
+    math_cot_prompt: str = args.math_cot_prompt or DEFAULT_MATH_COT_PROMPT
 
     # --- Step 1: Load tokenizer ---
     logger.info(f'Loading tokenizer from model: {args.model_name_or_path}')
@@ -452,7 +508,8 @@ def main() -> None:
             args.model_name_or_path,
             use_fast=True,
             trust_remote_code=True,
-            cache_dir=args.cache_dir)
+            cache_dir=args.cache_dir,
+        )
         if not tokenizer.chat_template:
             logger.warning(
                 f'Model {args.model_name_or_path} does not have a chat template. '
@@ -463,11 +520,12 @@ def main() -> None:
         return
 
     # --- Step 2: Load the raw dataset ---
-    logger.info(f'Loading dataset from {args.input_path}')
+    input_path = Path(args.input_path)
+    logger.info(f'Loading dataset from {input_path}')
     try:
         dataset: Dataset = load_dataset(
             'json',
-            data_files=args.input_path,
+            data_files=str(input_path),
             split='train',
             cache_dir=args.cache_dir,
         )
@@ -513,6 +571,7 @@ def main() -> None:
             tokenizer=tokenizer,
             system_prompt=system_prompt,
             additional_prompt=math_cot_prompt,
+            apply_chat_template=args.apply_chat_template,
             add_generation_prompt=args.add_generation_prompt,
         )
     elif args.apply_chat_template_method == 'formated':
@@ -523,24 +582,25 @@ def main() -> None:
             system_prompt=system_prompt,
             additional_prompt=math_cot_prompt,
         )
-    print(apply_model_chat_template)
     final_dpo_dataset: Dataset = dpo_dataset.map(
         apply_chat_template_func,
         num_proc=args.num_proc,
-        desc='Applying model chat templates')
+        desc='Applying model chat templates',
+    )
 
     # --- Step 6: Save the final dataset ---
-    logger.info(f'Saving DPO dataset to {args.output_path}')
-    final_dpo_dataset.to_json(args.output_path, lines=True)
+    output_path = Path(args.output_path)
+    logger.info(f'Saving DPO dataset to {output_path}')
+    final_dpo_dataset.to_json(str(output_path), lines=True)
 
     if args.save_subset:
         subset_size: int = args.subset_size
+        subset_output_path = Path(args.subset_output_path)
         logger.info(
-            f'Saving subset of size {subset_size} to {args.subset_output_path}'
-        )
+            f'Saving subset of size {subset_size} to {subset_output_path}')
         subset_dpo_dataset: Dataset = final_dpo_dataset.select(
-            range(subset_size))
-        subset_dpo_dataset.to_json(args.subset_output_path, lines=True)
+            range(min(subset_size, len(final_dpo_dataset))))
+        subset_dpo_dataset.to_json(str(subset_output_path), lines=True)
 
     logger.info('DPO dataset generation completed.')
 
