@@ -581,7 +581,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         '--apply_chat_template_method',
         type=str,
         choices=['tokenizer', 'formated'],
-        default='formated',
+        default='None',
         help=
         'Method for applying chat templates. "tokenizer" uses the HuggingFace tokenizer, while "formated" uses custom string templates.'
     )
@@ -705,6 +705,12 @@ def main() -> None:
             apply_chat_template=args.apply_model_chat_template,
             add_generation_prompt=args.add_generation_prompt,
         )
+        dpo_dataset: Dataset = dpo_dataset.map(
+            apply_chat_template_func,
+            num_proc=args.num_proc,
+            desc='Applying chat templates',
+        )
+
     elif args.apply_chat_template_method == 'formated':
         apply_chat_template_func = partial(
             apply_string_chat_template,
@@ -713,24 +719,25 @@ def main() -> None:
             system_prompt=system_prompt,
             additional_prompt=math_cot_prompt,
         )
-    final_dpo_dataset: Dataset = dpo_dataset.map(
-        apply_chat_template_func,
-        num_proc=args.num_proc,
-        desc='Applying chat templates',
-    )
+
+        dpo_dataset: Dataset = dpo_dataset.map(
+            apply_chat_template_func,
+            num_proc=args.num_proc,
+            desc='Applying chat templates',
+        )
 
     # --- Step 6: Save the final dataset ---
     output_path = Path(args.output_path)
     logger.info(f'Saving final DPO dataset to {output_path}')
-    final_dpo_dataset.to_json(str(output_path), lines=True)
+    dpo_dataset.to_json(str(output_path), lines=True)
 
     if args.save_subset:
         subset_size: int = args.subset_size
         subset_output_path = Path(args.subset_output_path)
         logger.info(
             f'Saving subset of size {subset_size} to {subset_output_path}')
-        subset_dpo_dataset: Dataset = final_dpo_dataset.select(
-            range(min(subset_size, len(final_dpo_dataset))))
+        subset_dpo_dataset: Dataset = dpo_dataset.select(
+            range(min(subset_size, len(dpo_dataset))))
         subset_dpo_dataset.to_json(str(subset_output_path), lines=True)
 
     logger.info('DPO dataset generation completed successfully. ✨')
