@@ -25,7 +25,6 @@ import logging
 from functools import partial
 from itertools import chain, product
 from pathlib import Path
-from tkinter import N
 from typing import (Any, Dict, Final, Iterable, List, MutableMapping, Optional,
                     TypedDict, Union)
 
@@ -36,7 +35,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 # Configuration & Logging
 # -----------------------------------------------------------------------------
 
-# Configure logging for better visibility
+# Configure logging for better visibility and control
 logging.basicConfig(
     format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
     level=logging.INFO,
@@ -63,7 +62,7 @@ RESPONSE_FORMAT_TEMPLATE: Final[str] = (
     '<|im_start|>assistant\n{assistant_response}<|im_end|>\n')
 
 # -----------------------------------------------------------------------------
-# Types
+# Type Definitions
 # -----------------------------------------------------------------------------
 
 
@@ -141,7 +140,7 @@ def item_as_bool(value: Any) -> bool:
     if isinstance(value, str):
         s: str = value.strip().lower()
         return s in {'1', 'true', 't', 'yes', 'y'}
-    return bool(value)
+    return False
 
 
 def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
@@ -241,16 +240,24 @@ def apply_chat_template(
     rejected_cot_text: str = item.get('rejected', '')
     metadata: MetaData = item.get(
         'metadata',
-        MetaData(chosen_cot_len=0,
-                 rejected_cot_len=0,
-                 chosen_is_correct=False,
-                 rejected_is_correct=False))
+        MetaData(
+            chosen_cot_len=0,
+            rejected_cot_len=0,
+            chosen_is_correct=False,
+            rejected_is_correct=False,
+        ),
+    )
+
+    prompt_formatted: str
+    chosen_formatted: str
+    rejected_formatted: str
 
     if apply_chat_template_method == 'tokenizer':
         if not tokenizer:
             raise ValueError(
                 "Tokenizer must be provided for 'tokenizer' method.")
-        # Apply the HuggingFace tokenizer's chat template
+
+        # Prepare messages for prompt and responses
         prompt_messages: List[Dict[str, str]] = []
         if system_prompt:
             prompt_messages.append({
@@ -259,10 +266,9 @@ def apply_chat_template(
             })
 
         # Apply the additional prompt if it exists
-        full_user_prompt = f'{user_prompt}\n{additional_prompt}' if additional_prompt else user_prompt
-        # Generate the prompt message
+        full_user_prompt = (f'{user_prompt}\n{additional_prompt}'
+                            if additional_prompt else user_prompt)
         prompt_messages.append({'role': 'user', 'content': full_user_prompt})
-
         chosen_messages = [{'role': 'assistant', 'content': chosen_cot_text}]
         rejected_messages = [{
             'role': 'assistant',
@@ -361,7 +367,7 @@ def generate_dpo_pairs(
         seen_cots.add(cot_text)
         is_correct = item_as_bool(cot.get('is_correct'))
         cot_token_len = get_token_len(cot_text, tokenizer)
-        if min_cot_len < cot_token_len <= max_cot_len:
+        if min_cot_len <= cot_token_len <= max_cot_len:
             cots_with_len.append(
                 CotWithLength(
                     cot=cot_text,
@@ -385,14 +391,16 @@ def generate_dpo_pairs(
                 rejected_is_correct=rejected_cot['is_correct'],
             )
             dpo_pairs.append(
-                DpoPair(system=system_prompt,
-                        prompt=question,
-                        ground_truth=ground_truth,
-                        chosen=chosen_cot['cot'],
-                        rejected=rejected_cot['cot'],
-                        metadata=meta_data))
+                DpoPair(
+                    system=system_prompt,
+                    prompt=question,
+                    ground_truth=ground_truth,
+                    chosen=chosen_cot['cot'],
+                    rejected=rejected_cot['cot'],
+                    metadata=meta_data,
+                ))
     # Case 2: Only correct CoTs are available, pair shortest vs. longest
-    elif correct_cots and not incorrect_cots:
+    elif correct_cots:
         # Require at least 4 correct CoTs to form a pair to ensure
         # chosen and rejected are distinct.
         if len(correct_cots) < 4:
@@ -412,12 +420,14 @@ def generate_dpo_pairs(
                 rejected_is_correct=rejected_cot['is_correct'],
             )
             dpo_pairs.append(
-                DpoPair(system=system_prompt,
-                        prompt=question,
-                        ground_truth=ground_truth,
-                        chosen=chosen_cot['cot'],
-                        rejected=rejected_cot['cot'],
-                        metadata=meta_data))
+                DpoPair(
+                    system=system_prompt,
+                    prompt=question,
+                    ground_truth=ground_truth,
+                    chosen=chosen_cot['cot'],
+                    rejected=rejected_cot['cot'],
+                    metadata=meta_data,
+                ))
 
     return {'pairs': dpo_pairs}
 
@@ -460,30 +470,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
         '--system_prompt',
         type=str,
         default=None,
-        help='System prompt template. Default value is built-in.')
+        help='System prompt template. If not provided, a default will be used.'
+    )
     parser.add_argument(
         '--math-cot-prompt',
         type=str,
         default=None,
         help='An additional prompt to append to the user question, e.g., '
-        '"Please reason step by step...". Default value is built-in.')
+        '"Please reason step by step...". If not provided, a default will be used.'
+    )
     parser.add_argument(
-        '--apply_model_chat_template',
-        action='store_true',
-        help='Whether to use the tokenizer\'s chat template for formatting.')
+        '--apply_chat_template_method',
+        type=str,
+        choices=['tokenizer', 'formated', 'none'],
+        default='formated',
+        help=
+        'Method for applying chat templates. "tokenizer" uses the HuggingFace tokenizer, "formated" uses custom string templates, and "none" returns unformatted text.'
+    )
     parser.add_argument(
         '--add_generation_prompt',
         action='store_true',
         help=
         'Whether to add a generation prompt token (e.g., `<|im_start|>assistant`). This option is only effective when using the "tokenizer" method.'
-    )
-    parser.add_argument(
-        '--apply_chat_template_method',
-        type=str,
-        choices=['tokenizer', 'formated', 'none'],  # Add 'none' to the choices
-        default='None',
-        help=
-        'Method for applying chat templates. "tokenizer" uses the HuggingFace tokenizer, "formated" uses custom string templates, and "none" returns unformatted text.'
     )
     parser.add_argument('--debug',
                         action='store_true',
@@ -521,6 +529,7 @@ def main() -> None:
     # Configure logging level if in debug mode
     if args.debug:
         logger.setLevel(logging.DEBUG)
+        logger.debug('Debug mode enabled. Verbose logging will be active.')
 
     # Resolve prompts (use defaults only if user didn't pass them)
     system_prompt: str = args.system_prompt or DEFAULT_SYSTEM_PROMPT
@@ -536,7 +545,8 @@ def main() -> None:
             cache_dir=args.cache_dir,
         )
         # Check for chat template existence for the 'tokenizer' method
-        if args.apply_chat_template_method == 'tokenizer' and not tokenizer.chat_template:
+        if (args.apply_chat_template_method == 'tokenizer'
+                and not tokenizer.chat_template):
             logger.warning(
                 f'Model {args.model_name_or_path} does not have a chat template. '
                 'Falling back to "formated" method.')
@@ -588,7 +598,7 @@ def main() -> None:
     flat_dpo_data: List[DpoPair] = list(
         chain.from_iterable(row['pairs'] for row in mapped_dataset
                             if row['pairs']))
-    logger.info(f'Total raw DPO pairs: {len(flat_dpo_data)}')
+    logger.info(f'Total raw DPO pairs generated: {len(flat_dpo_data)}')
     if not flat_dpo_data:
         logger.warning('No DPO pairs generated; exiting early.')
         return
@@ -605,8 +615,7 @@ def main() -> None:
         additional_prompt=math_cot_prompt,
         apply_chat_template_method=args.apply_chat_template_method,
         add_generation_prompt=args.add_generation_prompt,
-        prompt_template=
-        PROMPT_FORMAT_TEMPLATE,  # Pass templates for 'formated' method
+        prompt_template=PROMPT_FORMAT_TEMPLATE,
         assistant_template=RESPONSE_FORMAT_TEMPLATE,
     )
 
@@ -616,19 +625,29 @@ def main() -> None:
         desc=
         f'Applying chat templates using {args.apply_chat_template_method} method',
     )
+
     # --- Step 6: Save the final dataset ---
     output_path = Path(args.output_path)
-    logger.info(f'Saving final DPO dataset to {output_path}')
-    dpo_dataset.to_json(str(output_path), lines=True)
+    logger.info(
+        f'Saving final DPO dataset ({len(dpo_dataset)} pairs) to {output_path}'
+    )
+    try:
+        dpo_dataset.to_json(str(output_path), lines=True)
+    except Exception as e:
+        logger.error(f'Failed to save final dataset: {e}')
+        return
 
     if args.save_subset:
         subset_size: int = args.subset_size
         subset_output_path = Path(args.subset_output_path)
         logger.info(
             f'Saving subset of size {subset_size} to {subset_output_path}')
-        subset_dpo_dataset: Dataset = dpo_dataset.select(
-            range(min(subset_size, len(dpo_dataset))))
-        subset_dpo_dataset.to_json(str(subset_output_path), lines=True)
+        try:
+            subset_dpo_dataset: Dataset = dpo_dataset.select(
+                range(min(subset_size, len(dpo_dataset))))
+            subset_dpo_dataset.to_json(str(subset_output_path), lines=True)
+        except Exception as e:
+            logger.error(f'Failed to save subset dataset: {e}')
 
     logger.info('DPO dataset generation completed successfully. ✨')
 

@@ -1,5 +1,5 @@
 [flake8]
-ignore = W504 W605 F401 E501 E251
+ignore = W504 W605 F401 E501 E251 W503
 max-line-length = 120
 show-source = False
 application-import-names = llmeval
