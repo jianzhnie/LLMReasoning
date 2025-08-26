@@ -425,6 +425,7 @@ def generate_dpo_pairs(
     tokenizer: PreTrainedTokenizerBase,
     system_prompt: Optional[str] = None,
     max_cot_len: int = 32768,
+    min_cot_len: int = 1024,
 ) -> Dict[str, List[DpoPair]]:
     """
     Processes a single data item to generate DPO pairs (prompt, chosen, rejected).
@@ -438,13 +439,15 @@ def generate_dpo_pairs(
         tokenizer (PreTrainedTokenizerBase): Tokenizer for length calculation and prompt formatting.
         system_prompt (Optional[str]): System prompt template.
         max_cot_len (int): The maximum allowed token length for a CoT response.
+        min_cot_len (int): The minimum allowed token length for a CoT response.
+
 
     Returns:
         Dict[str, List[DpoPair]]: A dictionary containing
         the generated DPO pairs under the key "pairs".
     """
     question: Optional[str] = item.get('question')
-    ground_truth: Optional[str] = item.get('ground_truth')
+    ground_truth: Optional[str] = item.get('answer')
 
     if not isinstance(question, str) or not question.strip():
         logger.warning("Skipping item without a valid 'question' field.")
@@ -457,13 +460,15 @@ def generate_dpo_pairs(
 
     # Filter and add token lengths in one pass
     cots_with_len: List[CotWithLength] = []
+    seen_cots = set()
     for cot in raw_cots:
         cot_text = str(cot.get('cot', '')).strip()
-        if not cot_text:
+        if not cot_text or cot_text in seen_cots:
             continue
+        seen_cots.add(cot_text)
         is_correct = item_as_bool(cot.get('is_correct'))
         cot_token_len = get_token_len(cot_text, tokenizer)
-        if cot_token_len <= max_cot_len:
+        if min_cot_len < cot_token_len <= max_cot_len:
             cots_with_len.append(
                 CotWithLength(
                     cot=cot_text,
@@ -480,20 +485,19 @@ def generate_dpo_pairs(
     # Case 1: Both correct and incorrect CoTs are available
     if correct_cots and incorrect_cots:
         for chosen_cot, rejected_cot in product(correct_cots, incorrect_cots):
-            if chosen_cot['cot'] != rejected_cot['cot']:
-                meta_data = MetaData(
-                    chosen_cot_len=chosen_cot['cot_token_len'],
-                    rejected_cot_len=rejected_cot['cot_token_len'],
-                    chosen_is_correct=chosen_cot['is_correct'],
-                    rejected_is_correct=rejected_cot['is_correct'],
-                )
-                dpo_pairs.append(
-                    DpoPair(system=system_prompt,
-                            prompt=question,
-                            ground_truth=ground_truth,
-                            chosen=chosen_cot['cot'],
-                            rejected=rejected_cot['cot'],
-                            metadata=meta_data))
+            meta_data = MetaData(
+                chosen_cot_len=chosen_cot['cot_token_len'],
+                rejected_cot_len=rejected_cot['cot_token_len'],
+                chosen_is_correct=chosen_cot['is_correct'],
+                rejected_is_correct=rejected_cot['is_correct'],
+            )
+            dpo_pairs.append(
+                DpoPair(system=system_prompt,
+                        prompt=question,
+                        ground_truth=ground_truth,
+                        chosen=chosen_cot['cot'],
+                        rejected=rejected_cot['cot'],
+                        metadata=meta_data))
     # Case 2: Only correct CoTs are available, pair shortest vs. longest
     elif correct_cots and not incorrect_cots:
         # Require at least 4 correct CoTs to form a pair to ensure
@@ -508,20 +512,19 @@ def generate_dpo_pairs(
         rejected_candidates: List[Dict[str, Any]] = sorted_by_len[-2:]
         for chosen_cot, rejected_cot in product(chosen_candidates,
                                                 rejected_candidates):
-            if chosen_cot['cot'] != rejected_cot['cot']:
-                meta_data = MetaData(
-                    chosen_cot_len=chosen_cot['cot_token_len'],
-                    rejected_cot_len=rejected_cot['cot_token_len'],
-                    chosen_is_correct=chosen_cot['is_correct'],
-                    rejected_is_correct=rejected_cot['is_correct'],
-                )
-                dpo_pairs.append(
-                    DpoPair(system=system_prompt,
-                            prompt=question,
-                            ground_truth=ground_truth,
-                            chosen=chosen_cot['cot'],
-                            rejected=rejected_cot['cot'],
-                            metadata=meta_data))
+            meta_data = MetaData(
+                chosen_cot_len=chosen_cot['cot_token_len'],
+                rejected_cot_len=rejected_cot['cot_token_len'],
+                chosen_is_correct=chosen_cot['is_correct'],
+                rejected_is_correct=rejected_cot['is_correct'],
+            )
+            dpo_pairs.append(
+                DpoPair(system=system_prompt,
+                        prompt=question,
+                        ground_truth=ground_truth,
+                        chosen=chosen_cot['cot'],
+                        rejected=rejected_cot['cot'],
+                        metadata=meta_data))
 
     return {'pairs': dpo_pairs}
 
@@ -556,6 +559,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         type=int,
                         default=32768,
                         help='Maximum token length for a CoT response.')
+    parser.add_argument('--min_cot_len',
+                        type=int,
+                        default=1024,
+                        help='Minimum token length for a CoT response.')
     parser.add_argument(
         '--system_prompt',
         type=str,
@@ -669,6 +676,7 @@ def main() -> None:
         tokenizer=tokenizer,
         system_prompt=system_prompt,
         max_cot_len=args.max_cot_len,
+        min_cot_len=args.min_cot_len,
     )
 
     mapped_dataset: Dataset = dataset.map(
@@ -683,8 +691,10 @@ def main() -> None:
     logger.info('Flattening DPO pairs...')
     # The `mapped_dataset` contains a list of pairs for each input row.
     # We flatten this list to create a single dataset of DPO pairs.
+    # Flatten the data and filter out empty pairs
     flat_dpo_data: List[DpoPair] = list(
-        chain.from_iterable(row['pairs'] for row in mapped_dataset))
+        chain.from_iterable(row['pairs'] for row in mapped_dataset
+                            if row['pairs']))
     logger.info(f'Total raw DPO pairs: {len(flat_dpo_data)}')
     if not flat_dpo_data:
         logger.warning('No DPO pairs generated; exiting early.')
@@ -708,7 +718,7 @@ def main() -> None:
         dpo_dataset: Dataset = dpo_dataset.map(
             apply_chat_template_func,
             num_proc=args.num_proc,
-            desc='Applying chat templates',
+            desc='Applying chat templates Using Tokenizer Method',
         )
 
     elif args.apply_chat_template_method == 'formated':
@@ -723,7 +733,7 @@ def main() -> None:
         dpo_dataset: Dataset = dpo_dataset.map(
             apply_chat_template_func,
             num_proc=args.num_proc,
-            desc='Applying chat templates',
+            desc='Applying chat templates Using Formated Method',
         )
 
     # --- Step 6: Save the final dataset ---
