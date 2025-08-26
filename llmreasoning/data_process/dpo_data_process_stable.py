@@ -313,6 +313,156 @@ def apply_chat_template(
     )
 
 
+def apply_model_chat_template(
+    item: Dict[str, Any],
+    tokenizer: PreTrainedTokenizerBase,
+    system_prompt: Optional[str] = None,
+    additional_prompt: Optional[str] = None,
+    apply_chat_template: bool = False,
+    add_generation_prompt: bool = True,
+) -> DpoPair:
+    """
+    Formats the user's prompt and chosen and rejected responses using the model's chat template for the assistant's turn.
+
+    This function constructs a chat history with optional system and user prompts,
+    and then applies the tokenizer's chat template to format the conversation.
+
+    Args:
+        item (Dict[str, Any]): A dictionary containing 'chosen' and 'rejected' fields with raw text.
+        tokenizer (PreTrainedTokenizerBase): The tokenizer with the chat template.
+        system_prompt (Optional[str]): The system prompt to be included.
+        additional_prompt (Optional[str]): An optional prompt to append to the user's text.
+                                           For example, "Please reason step by step...".
+        add_generation_prompt (bool): If True, the template will include a prompt for
+                                      the assistant's turn, such as '<|im_start|>assistant\n'.
+    Returns:
+        DpoPair: The dictionary with 'chosen' and 'rejected' fields now formatted,
+                 with a TypedDict signature.
+    """
+    # Use .get() with a default to avoid KeyError if fields are missing
+    user_prompt: str = item.get('prompt', '')
+    ground_truth: str = item.get('ground_truth', '')
+    chosen_cot_text: str = item.get('chosen', '')
+    rejected_cot_text: str = item.get('rejected', '')
+    metadata: MetaData = item.get(
+        'metadata',
+        MetaData(chosen_cot_len=0,
+                 rejected_cot_len=0,
+                 chosen_is_correct=False,
+                 rejected_is_correct=False))
+
+    # Apply the additional prompt to the user question
+    if additional_prompt:
+        user_prompt += f'\n{additional_prompt}'
+
+    if apply_chat_template:
+        # Use the HuggingFace tokenizer's chat template
+        prompt_messages: List[Dict[str, str]] = []
+        if system_prompt:
+            prompt_messages.append({
+                'role': 'system',
+                'content': system_prompt
+            })
+
+        prompt_messages.append({'role': 'user', 'content': user_prompt})
+
+        chosen_messages: List[Dict[str, str]] = [{
+            'role': 'assistant',
+            'content': chosen_cot_text
+        }]
+        rejected_messages: List[Dict[str, str]] = [{
+            'role': 'assistant',
+            'content': rejected_cot_text
+        }]
+
+        # Apply template to User prompt
+        # The prompt_formatted should end with the start of the assistant's turn
+        prompt_formatted: str = tokenizer.apply_chat_template(
+            prompt_messages,
+            tokenize=False,
+            add_generation_prompt=add_generation_prompt,
+        )
+
+        # Apply template to assistant responses. This should NOT include the generation prompt
+        # as it's already part of the `prompt_formatted` string.
+        chosen_formatted = tokenizer.apply_chat_template(
+            chosen_messages, tokenize=False, add_generation_prompt=False)
+        rejected_formatted = tokenizer.apply_chat_template(
+            rejected_messages, tokenize=False, add_generation_prompt=False)
+
+        return DpoPair(
+            system=system_prompt,
+            prompt=prompt_formatted,
+            ground_truth=ground_truth,
+            chosen=chosen_formatted,
+            rejected=rejected_formatted,
+            metadata=metadata,
+        )
+
+    return DpoPair(
+        system=system_prompt,
+        prompt=user_prompt,
+        ground_truth=ground_truth,
+        chosen=chosen_cot_text,
+        rejected=rejected_cot_text,
+        metadata=metadata,
+    )
+
+
+def apply_string_chat_template(
+    item: Dict[str, Any],
+    prompt_template: str,
+    assistant_template: str,
+    system_prompt: Optional[str] = None,
+    additional_prompt: Optional[str] = None,
+) -> DpoPair:
+    """
+    Formats the user's prompt and chosen/rejected responses using custom string templates.
+
+    Args:
+        item (Dict[str, Any]): A dictionary containing 'chosen' and 'rejected' fields with raw text.
+        prompt_template (str): The string template for the full user prompt.
+        assistant_template (str): The string template for the assistant's response.
+        system_prompt (Optional[str]): The system prompt to be included.
+        additional_prompt (Optional[str]): An optional prompt to append to the user's text.
+
+    Returns:
+        DpoPair: The dictionary with formatted prompts and responses.
+    """
+    # Use .get() with a default to avoid KeyError if fields are missing
+    user_prompt: str = item.get('prompt', '')
+    ground_truth: str = item.get('ground_truth', '')
+    chosen_cot_text: str = item.get('chosen', '')
+    rejected_cot_text: str = item.get('rejected', '')
+    metadata: MetaData = item.get(
+        'metadata',
+        MetaData(chosen_cot_len=0,
+                 rejected_cot_len=0,
+                 chosen_is_correct=False,
+                 rejected_is_correct=False))
+
+    # Format the prompt
+    prompt_formatted: str = prompt_template.format(
+        system_prompt=system_prompt,
+        user_question=user_prompt,
+        additional_prompt=additional_prompt,
+    )
+    # Format the chosen and rejected responses
+    chosen_formatted: str = assistant_template.format(
+        assistant_response=chosen_cot_text)
+    rejected_formatted: str = assistant_template.format(
+        assistant_response=rejected_cot_text)
+
+    return DpoPair(
+        system=system_prompt,
+        prompt=prompt_formatted,
+        ground_truth=ground_truth,
+        chosen=chosen_formatted,
+        rejected=rejected_formatted,
+        metadata=metadata,
+    )
+
+
 def generate_dpo_pairs(
     item: Dict[str, Any],
     tokenizer: PreTrainedTokenizerBase,
