@@ -325,7 +325,7 @@ SimPO 算法的核心优势在于对 DPO 的简化与改进。
 DPO 损失函数公式为：
 
 $$
-- \log \sigma\left(\beta \left(\log \frac{\pi_\theta(y_w|x)}{\pi_{\text{ref}}(y_w|x)} - \log \frac{\pi_\theta(y_l|x)}{\pi_{\text{ref}}(y_l|x)}\right)\right)
+-\log \sigma\left(\beta \left(\log \frac{\pi_\theta(y_w|x)}{\pi_{\text{ref}}(y_w|x)} - \log \frac{\pi_\theta(y_l|x)}{\pi_{\text{ref}}(y_l|x)}\right)\right)
 $$
 
 **无参考模型（Reference-Free）**：SimPO 摒弃了 DPO 所需的参考模型（通常为 SFT 模型），直接使用当前策略模型（Policy Model）的平均对数概率作为隐式奖励。这一设计显著降低了训练的内存与计算开销，无需在训练过程中加载和维护额外模型。

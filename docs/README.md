@@ -1,4 +1,5 @@
 ## 数据处理
+[多次采样推理数据聚合脚本](toolkit/aggregate_reasoning_data.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/aggregate_reasoning_data.py)
 
 [DPO 数据集生成脚本](toolkit/dpo_data_process.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/dpo_data_process.py)
 

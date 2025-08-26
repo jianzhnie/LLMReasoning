@@ -1,4 +1,5 @@
 - 数据处理
+  - [数据聚合脚本](toolkit/aggregate_reasoning_data.md)
   - [DPO 数据集生成脚本](toolkit/dpo_data_process.md)
   - [RL Reasoning 数据集生成脚本](toolkit/reasoning_data_process.md)
   - [RL Reasoning 数据集生成脚本多进程版本](toolkit/reasoning_data_process.md)
