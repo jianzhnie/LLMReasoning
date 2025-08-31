@@ -133,20 +133,22 @@ trackio.init(project="fake-training", space_id="org_name/space_name")
 
 ```html
 <iframe 
-  src="https://org_name-space_name.hf.space/?project=fake-training&metrics=train_loss,train_accuracy&sidebar=hidden" 
-  width="600" 
-  height="600" 
-  frameborder="0">
-</iframe>
-```
-
-<iframe 
-  src="https://trackio-documentation.hf.space/?project=fake-training-750735&amp;metrics=train_loss,train_accuracy&amp;sidebar=hidden" 
+  src="https://jianzhnie-llmreasoning.hf.space/?project=trackio-demo&amp;metrics=train/loss,train/accuracy&amp;sidebar=hidden" 
   width="600" 
   height="600" 
   frameborder="0" 
   style="border-radius: 8px; border: 1px solid #e0e0e0; margin: 20px 0;">
 </iframe>
+```
+
+<iframe 
+  src="https://jianzhnie-llmreasoning.hf.space/?project=trackio-demo&amp;metrics=train/loss,train/accuracy&amp;sidebar=hidden" 
+  width="600" 
+  height="600" 
+  frameborder="0" 
+  style="border-radius: 8px; border: 1px solid #e0e0e0; margin: 20px 0;">
+</iframe>
+
 
 Spaces 支持公开或组织内私有部署，所有功能均免费使用。
 
@@ -389,3 +391,6 @@ trackio.import_tf_events(
 
 - https://huggingface.co/docs/trackio/index
 - https://github.com/gradio-app/trackio
+
+
+
