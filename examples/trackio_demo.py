@@ -159,7 +159,7 @@ def main() -> None:
     epochs: int = 20
 
     project_id: str = "trackio-demo"
-    run_id: str = "test-2"
+    run_id: str = "test-1"
     # Initialize a new wandb run with a unique name and configuration.
     # It's good practice to set a descriptive project name, a unique run name,
     # and log key hyperparameters in the config dictionary.

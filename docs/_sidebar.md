@@ -16,3 +16,4 @@
 - 其他工具
   - [大语言模型聊天模板](docs/apply_chat_template.md)
   - [训练日志转换为 TensorBoard](docs/log2tensorboard.md)
+  - [TrackIO 日志追踪工具](docs/trackio_intro.md)

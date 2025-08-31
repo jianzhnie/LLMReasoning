@@ -26,3 +26,5 @@
 [大语言模型聊天模板](docs/apply_chat_template.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/apply_chat_template.py)
 
 [训练日志转换为 TensorBoard](docs/log2tensorboard.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/log2tensorboard.py)
+
+[TrackIO 日志追踪工具](docs/trackio_intro.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/examples/trackio_demo.py)
