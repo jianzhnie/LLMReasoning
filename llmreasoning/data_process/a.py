@@ -210,10 +210,10 @@ def analyze_and_get_summary(jsonl_file_path: str,
 
 
 def process_and_summarize(
-    input_data_dir: str,
-    input_file_pattern: str,
-    output_data_dir: str,
-    output_filename: str,
+    input_dir: str,
+    file_pattern: str,
+    output_dir: str,
+    summary_filename: str,
     model_name_or_path: str,
     num_proc: int,
 ) -> None:
@@ -226,14 +226,14 @@ def process_and_summarize(
     a final summary file.
 
     Args:
-        input_data_dir: The directory containing the input JSONL files.
-        input_file_pattern: The glob pattern to match input files (e.g., '*.jsonl').
-        output_data_dir: The directory to save the combined summary JSON file.
-        output_filename: The filename for the final combined summary JSON.
+        input_dir: The directory containing the input JSONL files.
+        file_pattern: The glob pattern to match input files (e.g., '*.jsonl').
+        output_dir: The directory to save the combined summary JSON file.
+        summary_filename: The filename for the final combined summary JSON.
         model_name_or_path: The HuggingFace model path for the tokenizer.
         num_proc: Number of processes to use for parallel data processing.
     """
-    full_pattern: Path = Path(input_data_dir) / input_file_pattern
+    full_pattern: Path = Path(input_dir) / file_pattern
     jsonl_files: List[str] = glob.glob(str(full_pattern))
 
     if not jsonl_files:
@@ -266,11 +266,11 @@ def process_and_summarize(
         return
 
     # Ensure the output directory exists before writing
-    output_path: Path = Path(output_data_dir)
+    output_path: Path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Save all summaries to a single file with proper encoding
-    output_json_path: Path = output_path / output_filename
+    output_json_path: Path = output_path / summary_filename
     with open(output_json_path, 'w', encoding='utf-8') as out_file:
         json.dump(all_summaries, out_file, indent=2, ensure_ascii=False)
 
@@ -327,7 +327,7 @@ def main() -> None:
     process_and_summarize(input_data_dir=args.input_data_dir,
                           input_file_pattern=args.input_file_pattern,
                           output_data_dir=args.output_data_dir,
-                          output_filename=args.output_filename,
+                          output_filename=args.output_file_name,
                           model_name_or_path=args.model_name_or_path,
                           num_proc=args.num_proc)
 
