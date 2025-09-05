@@ -17,3 +17,4 @@
   - [大语言模型聊天模板](docs/apply_chat_template.md)
   - [训练日志转换为 TensorBoard](docs/log2tensorboard.md)
   - [TrackIO 日志追踪工具](docs/trackio_intro.md)
+  - [自动化 SSH 免密登录配置脚本](docs/auto_ssh_config.md)

@@ -28,3 +28,6 @@
 [训练日志转换为 TensorBoard](docs/log2tensorboard.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/log2tensorboard.py)
 
 [TrackIO 日志追踪工具](docs/trackio_intro.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/examples/trackio_demo.py)
+
+
+[自动化 SSH 免密登录配置脚本](docs/auto_ssh_config.md) | [Scripts](https://gitee.com/jianzhnie/LLMReasoning/blob/main/scripts/common/auto_ssh_config.sh)

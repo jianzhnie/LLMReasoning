@@ -35,8 +35,8 @@ NODE_LIST_FILE="${1:-"./node_list_all.txt"}"
 #----------------------------------------
 # 远程服务器的用户名和密码
 # **警告: 将密码明文存储在脚本中存在安全风险。建议在使用后立即删除脚本。**
-readonly USERNAME="jianzhnie"
-readonly PASSWORD="pcl@0312"
+readonly USERNAME=""
+readonly PASSWORD=""
 
 #----------------------------------------
 # 节点列表处理
