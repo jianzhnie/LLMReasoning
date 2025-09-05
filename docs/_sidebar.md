@@ -2,6 +2,7 @@
   - [数据聚合脚本](docs/aggregate_reasoning_data.md)
   - [DPO 数据集生成脚本](docs/dpo_data_process.md)
   - [RL Reasoning 数据集生成脚本](docs/reasoning_data_process.md)
+  - [VLLM 数学采样推理数据后处理](docs/vllm_reasoning_data_process.md)
   - [RL Reasoning 数据集生成脚本多进程版本](docs/reasoning_data_process.md)
 
 - 分布式训练

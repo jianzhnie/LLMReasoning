@@ -1,7 +1,10 @@
 ## 数据处理
-[多次采样推理数据聚合脚本](docs/aggregate_reasoning_data.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/aggregate_reasoning_data.py)
 
-[DPO 数据集生成脚本](docs/dpo_data_process.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/dpo_data_process.py)
+[多次采样推理数据聚合脚本 (DPO Part1)](docs/aggregate_reasoning_data.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/aggregate_reasoning_data.py)
+
+[DPO 数据集生成脚本 (DPO Par2)](docs/dpo_data_process.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/dpo_data_process.py)
+
+[VLLM 数学采样推理数据后处理](docs/vllm_reasoning_data_process.md) | [Scripts](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/llmreasoning/data_process/vllm_reasoning_data_process.py)
 
 [RL Reasoning 数据集生成脚本](docs/reasoning_data_process.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/rl_data_process.py)
 
