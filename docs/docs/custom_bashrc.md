@@ -96,7 +96,8 @@ alias llm='cd $HOME/llmtuner/llm'
 alias hub='cd $HOME/llmtuner/hfhub'
 
 # 监控 GPU 使用情况 (通常使用 nvidia-smi)
-alias npu='watch -n 1 nvidia-smi'
+alias npu='watch -n 1 npu-smi info'
+alias nv='npu-smi info'
 
 # --------------------------------------------------------------------
 # 4. 模块管理 (Modules)
