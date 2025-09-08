@@ -177,15 +177,11 @@ fi
 
 2. **赋予执行权限**：打开终端，使用 `chmod` 命令为脚本添加执行权限：
 
-   Bash
-
    ```bash
    chmod +x sync_bashrc_from_file.sh
    ```
 
 3. **执行同步**：运行脚本时，将节点列表文件的路径作为唯一参数传入。
-
-   Bash
 
    ```bash
    ./sync_bashrc_from_file.sh /path/to/your/nodes.txt
