@@ -34,3 +34,5 @@
 
 
 [自动化 SSH 免密登录配置脚本](docs/auto_ssh_config.md) | [Scripts](https://gitee.com/jianzhnie/LLMReasoning/blob/main/scripts/common/auto_ssh_config.sh)
+
+[自定义 Bashrc 配置文件和多节点同步脚本](docs/custom_bashrc.md) 

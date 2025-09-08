@@ -2,6 +2,16 @@
 
 本文档旨在为基于昇腾（Ascend）NPU平台的大语言模型训练与部署提供完整的技术指导，涵盖环境配置、依赖安装、代码管理、数据获取、分布式通信测试及常用运维操作等关键环节。
 
+## CANN 安装
+
+```bash
+bash Ascend-cann-toolkit_8.2.RC1_linux-aarch64.run --install
+bash Atlas-A3-cann-kernels_8.2.RC1_linux-aarch64.run --install
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+bash Ascend-cann-nnal_8.2.RC1_linux-aarch64.run --install
+source /usr/local/Ascend/nnal/atb/set_env.sh
+```
+
 
 
 ## 一、CANN 环境配置
@@ -48,6 +58,7 @@ pip install torch==2.5.1 && pip install torch-npu==2.5.1rc1
 为加速 Python 包下载，可使用国内镜像源：
 
 ### 清华源
+
 ```bash
 pip install -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn numpy==1.26.0
 ```
@@ -58,6 +69,34 @@ pip install -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.al
 ```
 
 > **建议**：将常用镜像源写入 `pip.conf` 以避免重复指定。
+
+### 全局配置
+
+#### **设置阿里源(推荐)**
+
+```text
+pip config set global.index-url https://mirrors.aliyun.com/pypi/simple 
+
+pip config set install.trusted-host mirrors.aliyun.com
+```
+
+#### **设置清华源**
+
+```text
+pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/
+pip config set install.trusted-host pypi.tuna.tsinghua.edu.cn
+```
+
+#### 删除其他配置
+
+```bash
+pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/
+pip config unset global.extra-index-url
+```
+
+第一个命令将默认索引源设置为 `https://mirrors.aliyun.com/pypi/simple/`。
+
+第二个命令将删除所有额外的索引源，包括 `https://download.pytorch.org/whl/cpu/` 和 `https://mirrors.huaweicloud.com/ascend/repos/pypi`。
 
 
 
@@ -595,10 +634,116 @@ model.fit(x_train, y_train, epochs=10, callbacks=[tensorboard_callback])
 
 这样，TensorBoard 生成的 `.tfevents` 日志会 自动同步 到 W&B。
 
-##  常见问题排查
+###  常见问题排查
 
 | 问题                     | 可能原因                   | 解决方案                            |
 | ------------------------ | -------------------------- | ----------------------------------- |
 | `wandb sync` 无响应      | 网络不通、日志损坏、已同步 | 检查网络，使用 `--clean` 清理缓存   |
 | 无法访问 `hf-mirror.com` | 镜像站失效或网络限制       | 更换镜像源或配置代理                |
 | NPU 设备未识别           | 驱动未安装或环境未加载     | 检查 `npu-smi` 输出，确认 CANN 配置 |
+
+## 十七. Git 生成 SSH Key
+
+### 1. 检查现有 SSH Key
+
+首先，检查你的电脑上是否已经有 SSH Key。
+
+打开终端（Terminal）或命令行工具，输入以下命令：
+
+```bash
+ls -al ~/.ssh
+```
+
+查看是否有以下文件：
+
+- `id_rsa` 和 `id_rsa.pub`（RSA）
+- `id_ed25519` 和 `id_ed25519.pub`（Ed25519）
+
+如果文件已存在，你可以选择使用现有的 Key 或生成新的。
+
+### 2. 生成新的 SSH Key
+
+运行以下命令生成一个新的 SSH Key（建议使用更安全的 Ed25519 算法）：
+
+```bash
+ssh-keygen -t ed25519 -C "jianzhnie@126.com"
+```
+
+> 如果你使用的是较老版本的系统不支持 Ed25519，可以使用 RSA：
+>
+> ```bash
+> ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
+> ```
+
+系统会提示你：
+
+- **保存位置**：直接按回车使用默认路径（如 `~/.ssh/id_ed25519`）。
+- **设置密码（passphrase）**：可选。建议设置以增强安全性。每次使用 Key 时会要求输入密码，也可以配合 `ssh-agent` 自动管理。
+
+### 3. 启动 SSH Agent 并添加 Key
+
+确保 `ssh-agent` 正在运行：
+
+```bash
+eval "$(ssh-agent -s)"
+```
+
+将你的 SSH Key 添加到 `ssh-agent`：
+
+```bash
+ssh-add ~/.ssh/id_ed25519
+```
+
+（如果使用的是 RSA，则为 `id_rsa`）
+
+### 4. 将 SSH Key 添加到 GitHub
+
+1. 复制公钥内容到剪贴板：
+
+   **macOS:**
+
+   ```bash
+   pbcopy < ~/.ssh/id_ed25519.pub
+   ```
+
+   **Linux (需要 xclip):**
+
+   ```bash
+   xclip -selection clipboard < ~/.ssh/id_ed25519.pub
+   ```
+
+   **Windows (Git Bash):**
+
+   ```bash
+   cat ~/.ssh/id_ed25519.pub
+   ```
+
+   然后手动复制输出内容。
+
+2. 登录 GitHub，点击右上角头像 → **Settings** → **SSH and GPG keys** → **New SSH key**。
+
+3. 输入标题（如 "My Laptop"），粘贴公钥内容，点击 **Add SSH key**。
+
+### 5. 测试连接
+
+在终端运行：
+
+```bash
+ssh -T git@github.com
+```
+
+如果看到类似以下提示：
+
+```
+Hi username! You've successfully authenticated...
+```
+
+说明配置成功！
+
+---
+
+✅ 现在你就可以使用 SSH 方式克隆、推送仓库了，例如：
+
+```bash
+git clone git@github.com:username/repo.git
+```

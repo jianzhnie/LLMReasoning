@@ -19,3 +19,4 @@
   - [训练日志转换为 TensorBoard](docs/log2tensorboard.md)
   - [TrackIO 日志追踪工具](docs/trackio_intro.md)
   - [自动化 SSH 免密登录配置脚本](docs/auto_ssh_config.md)
+  - [自定义 Bashrc 配置文件和多节点同步脚本](docs/custom_bashrc.md)

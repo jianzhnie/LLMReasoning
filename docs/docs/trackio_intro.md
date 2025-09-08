@@ -148,8 +148,6 @@ trackio.init(project="fake-training", space_id="org_name/space_name")
   frameborder="0" 
   style="border-radius: 8px; border: 1px solid #e0e0e0; margin: 20px 0;">
 </iframe>
-
-
 Spaces 支持公开或组织内私有部署，所有功能均免费使用。
 
 #### 数据持久化机制
