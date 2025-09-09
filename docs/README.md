@@ -22,7 +22,7 @@
 
 [SimPO 代码解析](docs/SimPO代码解析.md)
 
-[SimPO 高效优化策略](docs/SimPO高效优化策略.md)
+[Pass@k 强化训练](docs/Pass@k_RL.md)
 
 ## 其他工具
 

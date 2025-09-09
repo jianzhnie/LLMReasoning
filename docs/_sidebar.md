@@ -12,7 +12,7 @@
 - 算法实践
   - [大语言模型（LLM）训练与运维技术指南](docs/llm_docs_book.md)
   - [SimPO 代码解析](docs/SimPO代码解析.md)
-  - [SimPO 高效优化策略](docs/SimPO高效优化策略.md)
+  - [Pass@k 强化训练](docs/Pass@k_RL.md)
 
 - 其他工具
   - [大语言模型聊天模板](docs/apply_chat_template.md)
