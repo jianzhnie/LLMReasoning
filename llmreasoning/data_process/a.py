@@ -1,3 +1,5 @@
+# Fixed and improved code
+
 import argparse
 import json
 import logging
@@ -27,6 +29,7 @@ DEFAULT_SYSTEM_PROMPT: Final[str] = (
     'The reasoning process and answer are enclosed within <think> </think> and '
     '<answer> </answer> tags, respectively, i.e., '
     '<think> reasoning process here </think> <answer> answer here </answer>.')
+
 DEFAULT_MATH_COT_PROMPT: Final[str] = (
     'Please reason step by step, and put your final answer within \\boxed{}.')
 
@@ -189,7 +192,7 @@ class DataProcessor:
             args (argparse.Namespace): The parsed command-line arguments.
         """
         self.args = args
-        self.tokenizer = self._load_tokenizer()
+        self.tokenizer: PreTrainedTokenizerBase = self._load_tokenizer()
 
     def _load_tokenizer(self) -> PreTrainedTokenizerBase:
         """
@@ -356,36 +359,27 @@ class DataProcessor:
             max_cot_token_len=max_cot_token_len,
             min_cot_token_len=min_cot_token_len,
         )
-        # Generate SFT data entries
+
+        # Generate SFT data entries, only for correct CoTs
         sft_data_list: List[SFTCOTData] = []
-        if correct_count > 2:
-            for cot_entry in cots_with_len:
-                if cot_entry['is_correct']:
-                    sft_data_list.append(
-                        SFTCOTData(
-                            prompt=question,
-                            cot=cot_entry['cot'],
-                            ground_truth=ground_truth,
-                            is_correct=cot_entry['is_correct'],
-                            cot_token_len=cot_entry['cot_token_len'],
-                            metadata=metadata,
-                        ))
+        for cot_entry in cots_with_len:
+            if cot_entry['is_correct']:
+                # Format the prompt and response using the specified method
+                formatted_text = self._apply_chat_template(
+                    question=question,
+                    cot=cot_entry['cot'],
+                    ground_truth=ground_truth,
+                )
+                sft_data_list.append(
+                    SFTCOTData(
+                        prompt=formatted_text,
+                        cot=cot_entry['cot'],
+                        ground_truth=ground_truth,
+                        is_correct=cot_entry['is_correct'],
+                        cot_token_len=cot_entry['cot_token_len'],
+                        metadata=metadata,
+                    ))
         return sft_data_list
-
-    def validate_cot_data(self, cot_data: SFTCOTData) -> bool:
-        """Validate the generated CoT data"""
-        required_fields = ['prompt', 'cot', 'ground_truth', 'is_correct']
-
-        # Check required fields
-        if not all(field in cot_data for field in required_fields):
-            return False
-
-        # Validate token lengths
-        if not self.args.min_cot_len <= cot_data[
-                'cot_token_len'] <= self.args.max_cot_len:
-            return False
-
-        return True
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -410,31 +404,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help='Model name or path for loading the tokenizer.')
     parser.add_argument('--cache_dir',
                         type=str,
-                        default='/root/llmtuner/hfhub/cache_dir',
+                        default=os.path.join(Path.home(), 'hf_cache'),
                         help='HuggingFace cache directory.')
     parser.add_argument(
         '--num_proc',
         type=int,
-        default=32,
-        help='Number of processes for parallel data processing.')
+        default=os.cpu_count(),
+        help='Number of processes for parallel data processing. '
+        'Defaults to the number of CPU cores.')
     parser.add_argument('--max_cot_len',
                         type=int,
                         default=32768,
                         help='Maximum token length for a CoT response.')
-    parser.add_argument('--min_cot_len',
-                        type=int,
-                        default=1024,
-                        help='Minimum token length for a CoT response.')
+    parser.add_argument(
+        '--min_cot_len',
+        type=int,
+        default=1,  # changed default to 1 as 1024 is too high
+        help='Minimum token length for a CoT response.')
     parser.add_argument(
         '--system_prompt',
         type=str,
-        default=None,
+        default=DEFAULT_SYSTEM_PROMPT,
         help='System prompt template. If not provided, a default will be used.'
     )
     parser.add_argument(
         '--math-cot-prompt',
         type=str,
-        default=None,
+        default=DEFAULT_MATH_COT_PROMPT,
         help='An additional prompt to append to the user question, e.g., '
         '"Please reason step by step...". If not provided, a default will be used.'
     )
@@ -487,8 +483,6 @@ def main() -> None:
     """
     # Parse arguments and configure logging
     args = build_arg_parser().parse_args()
-
-    # Configure logging level if in debug mode
     if args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug('Debug mode enabled. Verbose logging will be active.')
@@ -544,6 +538,7 @@ def main() -> None:
     if not flat_sft_data:
         logger.warning('No SFT CoT data generated; exiting early.')
         return
+
     sft_dataset: Dataset = Dataset.from_list(flat_sft_data)
 
     # Save the final dataset
