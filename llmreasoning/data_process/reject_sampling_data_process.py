@@ -317,6 +317,7 @@ class DataProcessor:
             logger.info(f"No CoTs found for question: '{question[:50]}...'")
             return []
 
+        # Filter and add token lengths in one pass
         cots_with_len: List[CotWithLength] = []
         seen_cots = set()
         for cot in raw_cots:
@@ -325,7 +326,9 @@ class DataProcessor:
                 continue
             seen_cots.add(cot_text)
             is_correct = item_as_bool(cot.get('is_correct'))
-            cot_token_len = get_token_len(cot_text, self.tokenizer)
+            cot_token_len = cot.get('cot_token_len', None)
+            if not cot_token_len:
+                cot_token_len = get_token_len(cot_text, self.tokenizer)
             # Filter based on min/max token length
             if self.args.min_cot_len <= cot_token_len <= self.args.max_cot_len:
                 cots_with_len.append(
@@ -358,18 +361,17 @@ class DataProcessor:
         )
         # Generate SFT data entries
         sft_data_list: List[SFTCOTData] = []
-        if correct_count > 2:
-            for cot_entry in cots_with_len:
-                if cot_entry['is_correct']:
-                    sft_data_list.append(
-                        SFTCOTData(
-                            prompt=question,
-                            cot=cot_entry['cot'],
-                            ground_truth=ground_truth,
-                            is_correct=cot_entry['is_correct'],
-                            cot_token_len=cot_entry['cot_token_len'],
-                            metadata=metadata,
-                        ))
+        for cot_entry in cots_with_len:
+            if cot_entry['is_correct']:
+                sft_data_list.append(
+                    SFTCOTData(
+                        prompt=question,
+                        cot=cot_entry['cot'],
+                        ground_truth=ground_truth,
+                        is_correct=cot_entry['is_correct'],
+                        cot_token_len=cot_entry['cot_token_len'],
+                        metadata=metadata,
+                    ))
         return sft_data_list
 
     def validate_cot_data(self, cot_data: SFTCOTData) -> bool:
@@ -410,7 +412,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help='Model name or path for loading the tokenizer.')
     parser.add_argument('--cache_dir',
                         type=str,
-                        default='/root/llmtuner/hfhub/cache_dir',
+                        default='/home/jianzhnie/llmtuner/hfhub/cache_dir',
                         help='HuggingFace cache directory.')
     parser.add_argument(
         '--num_proc',
@@ -528,7 +530,7 @@ def main() -> None:
         # Remove original columns to create a clean, new dataset.
         remove_columns=dataset.column_names,
         # Set batched to False as we are processing one item at a time.
-        batched=False,
+        batched=True,
         desc='Building SFT CoT data',
     )
 
