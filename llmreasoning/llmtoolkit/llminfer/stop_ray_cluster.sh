@@ -2,7 +2,7 @@
 set -eo pipefail  # 启用严格错误处理
 
 # 配置信息
-PROJECT_DIR="/root/llmtuner/llm/LLMReasoning/llminfer"
+PROJECT_DIR="/home/jianzhnie/llmtuner/llm/LLMReasoning/llminfer"
 
 NODES=("10.16.201.108" "10.16.201.198")
 

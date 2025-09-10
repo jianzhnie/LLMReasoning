@@ -13,7 +13,7 @@
 MAX_JOBS=16
 
 # 节点列表文件路径
-NODE_LIST_FILE="/root/llmtuner/tools/nodes/node_list_all.txt"
+NODE_LIST_FILE="/home/jianzhnie/llmtuner/tools/nodes/node_list_all.txt"
 
 # 定义要 kill 的关键词（支持正则）
 KEYWORDS=("llmtuner" "llm_workspace" "mindspeed" "ray" "vllm" "python")

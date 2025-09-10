@@ -1,7 +1,7 @@
-model_path="/root/llmtuner/hfhub/models/Qwen/QwQ-32B"
+model_path="/home/jianzhnie/llmtuner/hfhub/models/Qwen/QwQ-32B"
 model_name="Qwen/QwQ-32B"
 
-# model_path="/root/llmtuner/hfhub/models/Qwen/Qwen2.5-7B"
+# model_path="/home/jianzhnie/llmtuner/hfhub/models/Qwen/Qwen2.5-7B"
 # model_name="Qwen/Qwen2.5-7B"
 
 python -m vllm.entrypoints.openai.api_server \

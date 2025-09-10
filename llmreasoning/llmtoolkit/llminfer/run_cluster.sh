@@ -6,7 +6,7 @@ set -euo pipefail
 # ==================================================================================
 
 # 项目目录（所有节点必须存在）
-readonly PROJECT_DIR="/root/llmtuner/llm/LLMReasoning/llminfer"
+readonly PROJECT_DIR="/home/jianzhnie/llmtuner/llm/LLMReasoning/llminfer"
 
 # 节点列表（可根据需要修改）
 readonly NODES=("10.16.201.108" "10.16.201.198")

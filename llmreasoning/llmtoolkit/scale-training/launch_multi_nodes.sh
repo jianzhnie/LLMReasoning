@@ -56,16 +56,33 @@ if [ ${#NODE_HOSTS[@]} -eq 0 ]; then
     exit 1
 fi
 
-# --- 可配置参数 ---
-# 如果环境变量已设置，则使用环境变量的值，否则使用默认值。
-: "${MASTER_ADDR:=${NODE_HOSTS[0]}}" # 主节点地址 (默认为列表中的第一个节点)
-: "${MASTER_PORT:="29500"}"           # 主节点端口
-: "${DEVICES_PER_NODE:="8"}"          # 每节点设备数 (原 NPUS_PER_NODE，更通用)
-: "${SSH_USER:="root"}"               # SSH 用户 (建议使用非 root 普通用户)
-: "${SSH_TIMEOUT:="30"}"              # SSH 连接超时 (秒)
-: "${WORK_DIR:="/root/llmtuner/tools/test_hccl"}"     # 远程节点的工作目录
-: "${REMOTE_SCRIPT:="run_single_node.sh"}" # 要在远程节点上执行的脚本
-: "${LOG_DIR:="logs"}"                # 日志文件存放目录
+# --- 训练相关参数，来自你原始脚本的配置 ---
+PROJECT_DIR="/home/jianzhnie/llmtuner/llm/LLMReasoning/llmreasoning/llmtoolkit/scale-training"
+DATA_PATH=""
+TOKENIZER_PATH=""
+CKPT_LOAD_DIR=""
+
+# --- 分布式配置 ---
+MASTER_ADDR="${NODE_HOSTS[0]}"
+MASTER_PORT="29500"
+DEVICES_PER_NODE=8
+SSH_USER="jianzhnie"
+SSH_TIMEOUT=30
+
+# --- 远程脚本和日志配置 ---
+OUTPUT_DIR="$PROJECT_DIR/work_dir"
+REMOTE_MAIN_SCRIPT="$PROJECT_DIR/launch_multi_nodes.sh"
+REMOTE_SCRIPT="$PROJECT_DIR/launch_single_node.sh"
+TRAIN_SCRIPT="$PROJECT_DIR/distributed_allreduce_demo.py"
+
+
+DATETIME=$(date +%Y-%m-%d_%H-%M-%S)
+LOG_DIR="$OUTPUT_DIR/logs/$DATETIME"
+CKPT_SAVE_DIR="$OUTPUT_DIR/model_ckpt/"
+LORA_CKPT_DIR="$OUTPUT_DIR/lora_ckpt/"
+
+# --- 复制脚本和配置 ---
+mkdir -p $LOG_DIR
 
 # --- 只读常量 ---
 readonly NUM_NODES=${#NODE_HOSTS[@]}
@@ -124,9 +141,11 @@ print_config() {
     echo "  每节点设备数    : $DEVICES_PER_NODE"
     echo "  主节点 (Master) : $MASTER_ADDR:$MASTER_PORT"
     echo "  SSH 用户        : $SSH_USER"
-    echo "  远程工作目录    : $WORK_DIR"
+    echo "  远程项目作目录    : $PROJECT_DIR"
     echo "  远程执行脚本    : $REMOTE_SCRIPT"
+    echo "  PyTorch训练脚本   : $TRAIN_SCRIPT"
     echo "  日志保存目录    : $LOG_DIR"
+    echo "  检查点保存目录  : $CKPT_SAVE_DIR"
     echo "========================================================"
     # 创建日志目录
     rm -rf "$LOG_DIR" # 可选：每次启动前清理旧日志
@@ -149,37 +168,38 @@ launch_nodes() {
         ssh \
             -o StrictHostKeyChecking=no \
             -o ConnectTimeout="$SSH_TIMEOUT" \
-            -o ServerAliveInterval=60 \
             -o BatchMode=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=3 \
             "$SSH_USER@$node_host" "
+
                 # 这是在远程节点上执行的命令块
                 set -euo pipefail;
-                cd '$WORK_DIR';
+            cd '$PROJECT_DIR' || exit 1;
 
-                # 如果存在环境设置脚本，则加载它
-                if [[ -f set_env.sh ]]; then
-                    source set_env.sh;
-                fi;
+            export NUM_NODES='$NUM_NODES';
+            export NODE_RANK='$node_rank';
+            export DEVICES_PER_NODE='$DEVICES_PER_NODE';
+            export MASTER_ADDR='$MASTER_ADDR';
+            export MASTER_PORT='$MASTER_PORT';
+            export CKPT_LOAD_DIR='$CKPT_LOAD_DIR';
+            export CKPT_SAVE_DIR='$CKPT_SAVE_DIR';
+            export LORA_CKPT_DIR='$LORA_CKPT_DIR';
+            export DATA_PATH='$DATA_PATH';
+            export TOKENIZER_PATH='$TOKENIZER_PATH';
+            export LOG_DIR='$LOG_DIR';
+            export PROJECT_DIR='$PROJECT_DIR'
+            export TRAIN_SCRIPT='$TRAIN_SCRIPT'
 
-                # 执行工作脚本，并传递所有参数
-                bash '$REMOTE_SCRIPT' \
-                    '$NUM_NODES' \
-                    '$node_rank' \
-                    '$DEVICES_PER_NODE' \
-                    '$MASTER_ADDR' \
-                    '$MASTER_PORT';
-            " > "$log_file" 2>&1 & # 注意这里的 &，它让 ssh 在后台运行
+            # 加载环境变量
+            set +u
+            source set_env.sh
+            # 使用 exec 确保远程脚本的退出码被正确传递
+            exec nohup bash '$REMOTE_SCRIPT'
+        " > "$log_file" 2>&1 &
 
-        PIDS+=($!) # 将后台 ssh 进程的 PID 添加到数组
-
-        # 检查 ssh 命令是否成功启动
-        # 如果 SSH 命令本身失败（例如，连接超时），wait 将不会返回 PID
-        if [ "$?" -ne 0 ]; then
-            echo "❌ 警告: SSH 连接到节点 $node_host 失败。该节点任务可能未启动。"
-        fi
-
-        # 轻微延迟以避免瞬间连接风暴
-        sleep 0.2
+        PIDS+=($!)
+        sleep 0.1
     done
 }
 
@@ -213,7 +233,6 @@ wait_for_completion() {
     echo "========================================================"
     if [ $failed_count -eq 0 ]; then
         echo "🎉🎉🎉 所有 $success_count 个节点任务全部成功完成！"
-        return 0
     else
         echo "💥 任务总结: $success_count 个成功, $failed_count 个失败。"
         echo "   请检查上述失败节点的日志文件进行排查。"

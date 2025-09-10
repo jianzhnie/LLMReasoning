@@ -4,7 +4,7 @@
 export HF_ENDPOINT=https://hf-mirror.com
 
 # cann 相关环境
-install_path=/root/llmtuner/Ascend
+install_path=/home/jianzhnie/llmtuner/Ascend
 # install_path=/usr/local/Ascend
 source $install_path/ascend-toolkit/set_env.sh
 source $install_path/nnal/atb/set_env.sh
@@ -44,5 +44,5 @@ export TASK_QUEUE_ENABLE=1
 
 # ray 相关
 # 激活conda环境
-# source /root/llmtuner/miniconda3/bin/activate vllm
+# source /home/jianzhnie/llmtuner/miniconda3/bin/activate vllm
 source /root/llm_workspace/miniconda3/bin/activate mindspeed_rl_0620

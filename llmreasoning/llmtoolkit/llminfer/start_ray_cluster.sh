@@ -7,7 +7,7 @@ set -euo pipefail  # Fail on error, undefined variables, and pipeline failures
 # It sets up one head node and multiple worker nodes with NPU resource configuration.
 
 # 项目目录
-PROJECT_DIR="/root/llmtuner/llm/LLMReasoning/llminfer"
+PROJECT_DIR="/home/jianzhnie/llmtuner/llm/LLMReasoning/llminfer"
 
 # 定义节点IP数组
 # NODES=("10.16.201.198" "10.16.201.193")
