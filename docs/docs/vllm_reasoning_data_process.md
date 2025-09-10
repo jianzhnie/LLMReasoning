@@ -128,7 +128,7 @@ python batch_processor.py \
 --input_file_pattern "inference_*.jsonl" \
 --output_data_dir ./summary \
 --output_filename final_report.json \
---model_name_or_path "/root/llmtuner/hfhub/models/Qwen/Qwen2.5-7B" \
+--model_name_or_path "/home/jianzhnie/llmtuner/hfhub/models/Qwen/Qwen2.5-7B" \
 --num_proc 8
 ```
 

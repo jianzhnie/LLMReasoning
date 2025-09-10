@@ -142,7 +142,7 @@ pip install datasets transformers
 | `--input_path`         | `str`  | **无**                           | \*\*必需。\*\*输入 JSONL 文件路径。                     |
 | `--output_path`        | `str`  | **无**                           | \*\*必需。\*\*输出 JSONL 文件路径。                     |
 | `--model_name_or_path` | `str`  | **无**                           | \*\*必需。\*\*用于加载 tokenizer 的模型名称或本地路径。 |
-| `--cache_dir`          | `str`  | `/root/llmtuner/hfhub/cache_dir` | Hugging Face 缓存目录。                                 |
+| `--cache_dir`          | `str`  | `/home/jianzhnie/llmtuner/hfhub/cache_dir` | Hugging Face 缓存目录。                                 |
 | `--num_proc`           | `int`  | `32`                             | 并行处理进程数。                                        |
 | `--max_cot_len`        | `int`  | `32768`                          | CoT 的最大 token 长度。                                 |
 | `--system_prompt`      | `str`  | （内置）                         | 自定义系统提示词模板。如果未指定，将使用内置默认值。    |

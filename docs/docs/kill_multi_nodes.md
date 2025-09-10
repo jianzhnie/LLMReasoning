@@ -14,7 +14,7 @@
 
  1. 配置节点列表文件
 
-在脚本的同级目录下，确保你的节点列表文件路径正确无误。默认路径为 `/root/llmtuner/tools/nodes/node_list_all.txt`。在该文件中，每行写入一个节点的 IP 地址或主机名。
+在脚本的同级目录下，确保你的节点列表文件路径正确无误。默认路径为 `/home/jianzhnie/llmtuner/tools/nodes/node_list_all.txt`。在该文件中，每行写入一个节点的 IP 地址或主机名。
 
 **示例：**
 
