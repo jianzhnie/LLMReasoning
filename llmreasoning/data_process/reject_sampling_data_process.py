@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import re  # Import the regex library
 import sys
 from functools import partial
 from itertools import chain
@@ -102,6 +103,24 @@ class SFTCOTData(TypedDict):
     is_correct: bool
     cot_token_len: int
     metadata: MetaData
+
+
+def is_integer(s: str) -> bool:
+    """
+    Checks if a string represents a valid integer using a regular expression.
+    This method is more robust than a simple try-except block for non-integer
+    strings like floats ("3.0") or scientific notation ("3e4").
+
+    Args:
+        s (str): The string to check.
+
+    Returns:
+        bool: True if the string is a valid integer, False otherwise.
+    """
+    if not s:
+        return False
+    # Use re.fullmatch to ensure the pattern matches the entire string.
+    return bool(re.fullmatch(r'[+-]?\d+', s.strip()))
 
 
 def item_as_bool(value: Any) -> bool:
@@ -304,16 +323,17 @@ class DataProcessor:
                               to a correct Chain of Thought. Returns an empty list if
                               no valid correct CoTs are found.
         """
-        # Input validation
-        if not isinstance(item, dict):
-            logger.warning('Skipping non-dictionary item.')
-            return []
-
         question: Optional[str] = item.get('question', '').strip()
         ground_truth: Optional[str] = item.get('answer', '').strip()
 
         if not question or not ground_truth:
             logger.warning('Skipping item with missing question or answer.')
+            return {'sft_cots': []}
+        # New filtering condition: skip if the ground truth is not an integer
+        if not is_integer(ground_truth):
+            logger.debug(
+                f"Skipping item because the answer '{ground_truth}' is not an integer."
+            )
             return {'sft_cots': []}
 
         raw_cots: Iterable[Dict[str, Any]] = get_iter_cots(item.get('cots'))
