@@ -1,2 +1,0 @@
-export HCCL_IF_IP=10.16.201.198
-export VLLM_HOST_IP=10.16.201.198
