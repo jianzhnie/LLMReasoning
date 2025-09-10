@@ -581,6 +581,9 @@ def main() -> None:
         return
     sft_dataset: Dataset = Dataset.from_list(flat_sft_data)
 
+    # 对数据集进行随机打乱
+    sft_dataset = sft_dataset.shuffle(seed=42)  # 使用种子保证可重复性
+
     # 6. Save the final dataset
     output_path = Path(args.output_path)
     logger.info(

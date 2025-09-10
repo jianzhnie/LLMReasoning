@@ -313,7 +313,7 @@ def main() -> None:
         type=str,
         required=True,
         help=
-        "The HuggingFace model path for the tokenizer (e.g., '/root/llmtuner/hfhub/models/Qwen/Qwen2.5-7B')."
+        "The HuggingFace model path for the tokenizer (e.g., '/home/jianzhnie/llmtuner/hfhub/models/Qwen/Qwen2.5-7B')."
     )
     parser.add_argument(
         '--num_proc',

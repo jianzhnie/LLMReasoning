@@ -143,7 +143,8 @@ def main() -> None:
     parser.add_argument(
         '--model-dir',
         type=str,
-        default=os.environ.get('HF_MODEL_DIR', '/root/llmtuner/hfhub/models/'),
+        default=os.environ.get('HF_MODEL_DIR',
+                               '/home/jianzhnie/llmtuner/hfhub/models/'),
         help=
         'The base directory where models are stored. Can be overridden by HF_MODEL_DIR env var.'
     )

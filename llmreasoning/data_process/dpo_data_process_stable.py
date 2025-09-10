@@ -591,7 +591,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help='Model name or path for loading the tokenizer.')
     parser.add_argument('--cache_dir',
                         type=str,
-                        default='/root/llmtuner/hfhub/cache_dir',
+                        default='/home/jianzhnie/llmtuner/hfhub/cache_dir',
                         help='HuggingFace cache directory.')
     parser.add_argument(
         '--num_proc',
