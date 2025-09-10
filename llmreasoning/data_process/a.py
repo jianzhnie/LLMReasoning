@@ -4,9 +4,9 @@ import logging
 import os
 import sys
 from functools import partial
-from itertools import chain
 from pathlib import Path
-from typing import Any, Dict, Final, Iterable, List, Optional, TypedDict, Union
+from typing import (Any, Dict, Final, Iterable, List, Optional, TypeAlias,
+                    TypedDict, Union)
 
 from datasets import Dataset, load_dataset
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
@@ -22,7 +22,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger('sft_cot_builder')
 
-# Defaults (used only if CLI values are not provided)
+# Default system and instruction prompts
 DEFAULT_SYSTEM_PROMPT: Final[str] = (
     "You are a helpful assistant. To answer the user's question, you first think "
     'about the reasoning process and then provide the user with the answer. '
@@ -41,12 +41,14 @@ PROMPT_FORMAT_TEMPLATE: Final[str] = (
 RESPONSE_FORMAT_TEMPLATE: Final[str] = (
     '<|im_start|>assistant\n{assistant_response}<|im_end|>\n')
 
+# Type alias for a generic JSON dictionary
+JsonDict: TypeAlias = Dict[str, Any]
+
 # -----------------------------------------------------------------------------
 # Data Structures & Helper Functions
 # -----------------------------------------------------------------------------
 
 
-# Internal type for CoT data with added token length
 class CotWithLength(TypedDict):
     """
     Internal type for a CoT entry with its token length.
@@ -157,17 +159,16 @@ def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
 
 
 def get_iter_cots(
-    cots_field: Union[Dict[str, Any], List[Any],
-                      Any]) -> Iterable[Dict[str, Any]]:
+        cots_field: Union[JsonDict, List[Any], Any]) -> Iterable[JsonDict]:
     """
     Normalizes the 'cots' field from a dataset item to an iterable of dictionaries.
 
     Args:
-        cots_field (Union[Dict, List, Any]): The raw 'cots' data from a dataset item.
+        cots_field (Union[JsonDict, List[Any], Any]): The raw 'cots' data from a dataset item.
                                              Can be a dictionary, a list of dictionaries, or other types.
 
     Returns:
-        Iterable[Dict[str, Any]]: An iterator over the valid CoT entries.
+        Iterable[JsonDict]: An iterator over the valid CoT entries.
     """
     if isinstance(cots_field, dict):
         # Handle cases where 'cots' is a dictionary of CoTs, e.g., {'key1': {'cot': '...'}, ...}
@@ -283,7 +284,7 @@ class DataProcessor:
 
     def generate_sft_data(
         self,
-        item: Dict[str, Any],
+        item: JsonDict,
     ) -> List[SFTCOTData]:
         """
         Processes a single dataset item to generate a list of SFTCOTData entries.
@@ -297,7 +298,7 @@ class DataProcessor:
         6. Returns the list of generated entries.
 
         Args:
-            item (Dict[str, Any]): A single row from the raw dataset.
+            item (JsonDict): A single row from the raw dataset.
 
         Returns:
             List[SFTCOTData]: A list of SFTCOTData entries, where each entry corresponds
@@ -314,12 +315,12 @@ class DataProcessor:
 
         if not question or not ground_truth:
             logger.warning('Skipping item with missing question or answer.')
-            return {'sft_cots': []}
+            return []
 
-        raw_cots: Iterable[Dict[str, Any]] = get_iter_cots(item.get('cots'))
+        raw_cots: Iterable[JsonDict] = get_iter_cots(item.get('cots'))
         if not raw_cots:
             logger.debug(f"No CoTs found for question: '{question[:50]}...'")
-            return {'sft_cots': []}
+            return []
 
         # Filter and add token lengths in one pass
         cots_with_len: List[CotWithLength] = []
@@ -330,12 +331,14 @@ class DataProcessor:
             if not cot_text or cot_text in seen_cots:
                 continue
             seen_cots.add(cot_text)
+
             is_correct = item_as_bool(cot.get('is_correct'))
 
             # Check if token length is already provided; if not, calculate it
             cot_token_len = cot.get('cot_token_len')
             if cot_token_len is None:
                 cot_token_len = get_token_len(cot_text, self.tokenizer)
+
             # Filter based on min/max token length
             if self.args.min_cot_len <= cot_token_len <= self.args.max_cot_len:
                 cots_with_len.append(
@@ -347,7 +350,7 @@ class DataProcessor:
 
         if not cots_with_len:
             logger.debug('No valid CoTs found after filtering.')
-            return {'sft_cots': []}
+            return []
 
         # Calculate metadata
         total_answers = len(cots_with_len)
@@ -379,7 +382,7 @@ class DataProcessor:
                         cot_token_len=cot_entry['cot_token_len'],
                         metadata=metadata,
                     ))
-        return {'sft_cots': sft_data_list}
+        return sft_data_list
 
     def validate_cot_data(self, cot_data: SFTCOTData) -> bool:
         """
@@ -445,13 +448,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--system_prompt',
         type=str,
-        default=None,
+        default=DEFAULT_SYSTEM_PROMPT,
         help='System prompt template. If not provided, a default will be used.'
     )
     parser.add_argument(
         '--math-cot-prompt',
         type=str,
-        default=None,
+        default=DEFAULT_MATH_COT_PROMPT,
         help='An additional prompt to append to the user question, e.g., '
         '"Please reason step by step...". If not provided, a default will be used.'
     )
@@ -505,7 +508,6 @@ def main() -> None:
     # 1. Parse arguments and configure logging
     args = build_arg_parser().parse_args()
 
-    # Configure logging level if in debug mode
     if args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug('Debug mode enabled. Verbose logging will be active.')
@@ -538,22 +540,18 @@ def main() -> None:
     mapped_dataset: Dataset = dataset.map(
         data_processor.generate_sft_data,
         num_proc=args.num_proc,
-        # Remove original columns to create a clean, new dataset.
         remove_columns=dataset.column_names,
-        # Set batched to False as we are processing one item at a time.
         batched=False,
         desc='Building SFT CoT data',
     )
-    # The `map` function with batched=False returns a dataset of lists
-    # even when the function returns a single list. We need to flatten it.
 
     # 5. Flatten the data into a single SFT dataset
     logger.info('Flattening SFT data...')
     # The mapped dataset is a list of lists (e.g., [[{...}, {...}], [...],...]).
     # We need to flatten it into a single list of dictionaries.
-    flat_sft_data: List[SFTCOTData] = list(
-        chain.from_iterable(row['sft_cots'] for row in mapped_dataset
-                            if row['sft_cots']))
+    flat_sft_data: List[SFTCOTData] = [
+        sft_cot for sublist in mapped_dataset for sft_cot in sublist if sft_cot
+    ]
 
     logger.info(f'Total SFT CoT data generated: {len(flat_sft_data)}')
     if not flat_sft_data:
@@ -589,5 +587,5 @@ def main() -> None:
     logger.info('SFT dataset generation completed successfully. ✨')
 
 
-if __name__ == '__main__':
+if __file__ == '__main__':
     main()
