@@ -1,8 +1,17 @@
+"""
+This script batch processes JSONL evaluation files to analyze accuracy and
+other key statistics for a set of prompts. It aggregates results from
+multiple files into a single, comprehensive summary JSON file.
+
+The script uses HuggingFace's `datasets` library for efficient data loading
+and parallel processing, making it suitable for large datasets. It's designed
+to be run from the command line, accepting input/output directories and a
+model path for tokenizer loading.
+"""
+
 import argparse
-import json
 import logging
-import os
-import re  # Import the regex library
+import re
 import sys
 from itertools import chain
 from pathlib import Path
@@ -10,10 +19,6 @@ from typing import Any, Dict, Final, Iterable, List, Optional, TypedDict, Union
 
 from datasets import Dataset, load_dataset
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
-
-# -----------------------------------------------------------------------------
-# Configuration & Logging
-# -----------------------------------------------------------------------------
 
 # Configure logging for better visibility and control
 logging.basicConfig(
@@ -37,13 +42,6 @@ DEFAULT_MATH_COT_PROMPT: Final[str] = (
 PROMPT_FORMAT_TEMPLATE: Final[str] = (
     '<|im_start|>system\n{system_prompt}<|im_end|>\n'
     '<|im_start|>user\n{user_question}\n{additional_prompt}<|im_end|>\n')
-
-RESPONSE_FORMAT_TEMPLATE: Final[str] = (
-    '<|im_start|>assistant\n{assistant_response}<|im_end|>\n')
-
-# -----------------------------------------------------------------------------
-# Data Structures & Helper Functions
-# -----------------------------------------------------------------------------
 
 
 # Internal type for CoT data with added token length
@@ -81,26 +79,11 @@ class MetaData(TypedDict):
     min_cot_token_len: int
 
 
-class SFTCOTData(TypedDict):
+class ReasonlingData:
     """
-    TypedDict representing a single SFT (Supervised Fine-Tuning) Chain of Thought data sample.
-
-    This structure is used for the final processed dataset, where each entry represents
-    a correct CoT paired with its corresponding prompt, response, ground truth, and metadata.
-
-    Attributes:
-        prompt (str): The formatted user prompt.
-        response (str): The formatted assistant response containing the CoT.
-        ground_truth (str): The ground truth answer.
-        is_correct (bool): Always True, as this dataset only contains correct CoTs.
-        response_token_len (int): The token length of the correct CoT response.
-        metadata (MetaData): Statistical metadata about all CoTs for the prompt.
     """
     prompt: str
-    response: str
     ground_truth: str
-    is_correct: bool
-    response_token_len: int
     metadata: MetaData
 
 
@@ -145,6 +128,29 @@ def item_as_bool(value: Any) -> bool:
     return False
 
 
+def get_iter_cots(
+    cots_field: Union[Dict[str, Any], List[Any],
+                      Any]) -> Iterable[Dict[str, Any]]:
+    """
+    Normalizes the 'cots' field from a dataset item to an iterable of dictionaries.
+
+    Args:
+        cots_field (Union[Dict, List, Any]): The raw 'cots' data from a dataset item.
+                                             Can be a dictionary, a list of dictionaries, or other types.
+
+    Returns:
+        Iterable[Dict[str, Any]]: An iterator over the valid CoT entries.
+    """
+    if isinstance(cots_field, dict):
+        # Handle cases where 'cots' is a dictionary of CoTs, e.g., {'key1': {'cot': '...'}, ...}
+        return (v for v in cots_field.values() if isinstance(v, dict))
+    if isinstance(cots_field, list):
+        # Handle cases where 'cots' is a list of CoT dictionaries, e.g., [{'cot': '...'}, ...]
+        return (v for v in cots_field if isinstance(v, dict))
+    # Return an empty iterator for any other type
+    return iter([])
+
+
 def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
     """
     Calculates the number of tokens for a given text using the specified tokenizer.
@@ -167,29 +173,6 @@ def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
             f'Falling back to naive length computation due to tokenization error: {e}'
         )
         return len(text.split())
-
-
-def get_iter_cots(
-    cots_field: Union[Dict[str, Any], List[Any],
-                      Any]) -> Iterable[Dict[str, Any]]:
-    """
-    Normalizes the 'cots' field from a dataset item to an iterable of dictionaries.
-
-    Args:
-        cots_field (Union[Dict, List, Any]): The raw 'cots' data from a dataset item.
-                                             Can be a dictionary, a list of dictionaries, or other types.
-
-    Returns:
-        Iterable[Dict[str, Any]]: An iterator over the valid CoT entries.
-    """
-    if isinstance(cots_field, dict):
-        # Handle cases where 'cots' is a dictionary of CoTs, e.g., {'key1': {'cot': '...'}, ...}
-        return (v for v in cots_field.values() if isinstance(v, dict))
-    if isinstance(cots_field, list):
-        # Handle cases where 'cots' is a list of CoT dictionaries, e.g., [{'cot': '...'}, ...]
-        return (v for v in cots_field if isinstance(v, dict))
-    # Return an empty iterator for any other type
-    return iter([])
 
 
 class DataProcessor:
@@ -238,7 +221,6 @@ class DataProcessor:
     def _apply_chat_template(
         self,
         question: str,
-        response: str,
     ) -> tuple[str, str]:
         """
         Applies the chat template to format the prompt and response for SFT.
@@ -248,7 +230,6 @@ class DataProcessor:
 
         Args:
             question (str): The user's question.
-            response (str): The assistant's response.
 
         Returns:
             tuple[str, str]: The formatted prompt and response strings.
@@ -271,29 +252,12 @@ class DataProcessor:
                 'content': user_question_with_prompt
             })
 
-            assistant_response = []
-            # Format the assistant's response with a specific tag format
-            formatted_response_content = f'<think>{response}'
-            # Format the assistant's response with a specific tag format
-            assistant_response.append({
-                'role': 'assistant',
-                'content': formatted_response_content
-            })
-            # The `response` part will have the assistant's start tag at the beginning, so we prepend it back
-            # or simply use the full formatted text and split it in the main function. Let's make this more robust.
-            # A cleaner way is to create the prompt and response strings separately and return them.
-            # Apply the chat template using the tokenizer
             formatted_prompt = self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
                 add_generation_prompt=self.args.add_generation_prompt)
-            formatted_response = self.tokenizer.apply_chat_template(
-                assistant_response,
-                tokenize=False,
-                add_generation_prompt=self.args.add_generation_prompt)
 
-            return formatted_prompt, formatted_response
-
+            return formatted_prompt
         elif self.args.apply_chat_template_method == 'formatted':
             # Use custom templates if the tokenizer method is not chosen or available.
             formatted_prompt = PROMPT_FORMAT_TEMPLATE.format(
@@ -301,20 +265,18 @@ class DataProcessor:
                 user_question=question,
                 additional_prompt=math_cot_prompt,
             )
-            formatted_response = RESPONSE_FORMAT_TEMPLATE.format(
-                assistant_response=(f'<think>{response}'))
-            return formatted_prompt, formatted_response
+            return formatted_prompt
         else:
             logger.warning(
                 f'Invalid apply_chat_template_method: {self.args.apply_chat_template_method}. '
                 'Falling back to "formatted" method.')
             logger.warning('Using unformatted raw text.')
-            return question, response
+            return question
 
-    def generate_sft_data(
+    def generate_rl_data(
         self,
         item: Dict[str, Any],
-    ) -> Dict[str, List[SFTCOTData]]:
+    ) -> Dict[str, List[ReasonlingData]]:
         """
         Processes a single dataset item to generate a list of SFTCOTData entries.
 
@@ -340,13 +302,13 @@ class DataProcessor:
 
         if not question or not ground_truth:
             logger.warning('Skipping item with missing question or answer.')
-            return {'sft_cots': []}
+            return {'rl_data': []}
         # New filtering condition: skip if the ground truth is not an integer
         if not is_integer(ground_truth):
             logger.debug(
                 f"Skipping item because the answer '{ground_truth}' is not an integer."
             )
-            return {'sft_cots': []}
+            return {'rl_data': []}
 
         raw_cots: Iterable[Dict[str, Any]] = get_iter_cots(item.get('cots'))
         if not raw_cots:
@@ -379,7 +341,7 @@ class DataProcessor:
 
         if not cots_with_len:
             logger.debug('No valid CoTs found after filtering.')
-            return {'sft_cots': []}
+            return {'rl_data': []}
 
         # Calculate metadata
         total_answers = len(cots_with_len)
@@ -400,46 +362,11 @@ class DataProcessor:
             max_cot_token_len=max_cot_token_len,
             min_cot_token_len=min_cot_token_len,
         )
-        # Generate SFT data entries for all correct CoTs
-        sft_data_list: List[SFTCOTData] = []
-        for cot_entry in cots_with_len:
-            if cot_entry['is_correct']:
-                formatted_prompt, formatted_response = self._apply_chat_template(
-                    question, cot_entry['cot'])
-
-                sft_data_list.append(
-                    SFTCOTData(
-                        prompt=formatted_prompt,
-                        response=formatted_response,
-                        ground_truth=ground_truth,
-                        is_correct=cot_entry['is_correct'],
-                        response_token_len=cot_entry['cot_token_len'],
-                        metadata=metadata,
-                    ))
-        return {'sft_cots': sft_data_list}
-
-    def validate_cot_data(self, cot_data: SFTCOTData) -> bool:
-        """
-        Validates the generated CoT data to ensure all required fields are present and valid.
-
-        Args:
-            cot_data (SFTCOTData): The data sample to validate.
-
-        Returns:
-            bool: True if the data is valid, False otherwise.
-        """
-        required_fields = ['prompt', 'cot', 'ground_truth', 'is_correct']
-
-        # Check for presence of required fields
-        if not all(field in cot_data for field in required_fields):
-            return False
-
-        # Validate token lengths against the configured min/max
-        if not self.args.min_cot_len <= cot_data[
-                'cot_token_len'] <= self.args.max_cot_len:
-            return False
-
-        return True
+        formatted_prompt = self._apply_chat_template(question)
+        rl_data = ReasonlingData(prompt=formatted_prompt,
+                                 ground_truth=ground_truth,
+                                 metadata=metadata)
+        return {'rl_data': [rl_data]}
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -449,7 +376,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         'Generate SFT (Supervised Fine-Tuning) CoT data from a raw dataset.',
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    # --- Argument Definitions ---
+    parser = argparse.ArgumentParser(
+        description=
+        'Batch process JSONL evaluation files and generate a combined accuracy summary.'
+    )
     parser.add_argument('--input_path',
                         type=str,
                         required=True,
@@ -458,10 +388,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         type=str,
                         required=True,
                         help='Path for the output JSONL file.')
-    parser.add_argument('--model_name_or_path',
-                        type=str,
-                        required=True,
-                        help='Model name or path for loading the tokenizer.')
+    parser.add_argument(
+        '--model_name_or_path',
+        type=str,
+        required=True,
+        help=
+        "The HuggingFace model path for the tokenizer (e.g., '/home/jianzhnie/llmtuner/hfhub/models/Qwen/Qwen2.5-7B')."
+    )
     parser.add_argument('--cache_dir',
                         type=str,
                         default='/home/jianzhnie/llmtuner/hfhub/cache_dir',
@@ -575,13 +508,13 @@ def main() -> None:
     # Use map with batched=False, as generate_sft_data processes one item at a time.
     # The output will be a dataset where each row contains a list of dictionaries.
     mapped_dataset: Dataset = dataset.map(
-        data_processor.generate_sft_data,
+        data_processor.generate_rl_data,
         num_proc=args.num_proc,
         # Remove original columns to create a clean, new dataset.
         remove_columns=dataset.column_names,
         # Set batched to False as we are processing one item at a time.
-        batched=False,
-        desc='Building SFT CoT data',
+        batched=True,
+        desc='Building  RL Reasonling data',
     )
     # The `map` function with batched=False returns a dataset of lists
     # even when the function returns a single list. We need to flatten it.
@@ -590,9 +523,9 @@ def main() -> None:
     logger.info('Flattening SFT data...')
     # The mapped dataset is a list of lists (e.g., [[{...}, {...}], [...],...]).
     # We need to flatten it into a single list of dictionaries.
-    flat_sft_data: List[SFTCOTData] = list(
-        chain.from_iterable(row['sft_cots'] for row in mapped_dataset
-                            if row['sft_cots']))
+    flat_sft_data: List[ReasonlingData] = list(
+        chain.from_iterable(row['rl_data'] for row in mapped_dataset
+                            if row['rl_data']))
 
     logger.info(f'Total SFT CoT data generated: {len(flat_sft_data)}')
     if not flat_sft_data:
