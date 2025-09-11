@@ -59,9 +59,12 @@ class CotWithLength(TypedDict):
     cot_token_len: int
 
 
-class MetaData(TypedDict):
+class MetaData(TypedDict, total=False):
     """
     Defines the structure of statistical metadata for CoT entries of a question.
+    `TypedDict` with `total=False` means that all keys are optional, which is
+    more flexible for this use case where some keys might be missing if no
+    valid CoTs are found.
 
     Attributes:
         total_answers (int): The total number of CoTs for a given question.
@@ -79,8 +82,17 @@ class MetaData(TypedDict):
     min_cot_token_len: int
 
 
-class ReasonlingData:
+class ReasonlingData(TypedDict):
     """
+    Defines the structure for a single, processed RL Reasonling data entry.
+
+    This dictionary contains all the necessary information for a single
+    Supervised Fine-Tuning (SFT) example.
+
+    Attributes:
+        prompt (str): The formatted prompt for the language model.
+        ground_truth (str): The ground truth answer.
+        metadata (MetaData): Statistical metadata about the CoTs.
     """
     prompt: str
     ground_truth: str
@@ -221,9 +233,9 @@ class DataProcessor:
     def _apply_chat_template(
         self,
         question: str,
-    ) -> tuple[str, str]:
+    ) -> str:
         """
-        Applies the chat template to format the prompt and response for SFT.
+        Applies the chat template to format the prompt for RL Reasoning.
 
         This method handles both the HuggingFace tokenizer's `apply_chat_template`
         and a custom string-based formatting method.
@@ -232,7 +244,7 @@ class DataProcessor:
             question (str): The user's question.
 
         Returns:
-            tuple[str, str]: The formatted prompt and response strings.
+            str: The formatted prompt string.
         """
         system_prompt: Optional[str] = self.args.system_prompt
         math_cot_prompt: Optional[str] = self.args.math_cot_prompt
@@ -258,8 +270,9 @@ class DataProcessor:
                 add_generation_prompt=self.args.add_generation_prompt)
 
             return formatted_prompt
+
+        # Use custom templates if the tokenizer method is not chosen or available.
         elif self.args.apply_chat_template_method == 'formatted':
-            # Use custom templates if the tokenizer method is not chosen or available.
             formatted_prompt = PROMPT_FORMAT_TEMPLATE.format(
                 system_prompt=system_prompt,
                 user_question=question,
@@ -278,22 +291,22 @@ class DataProcessor:
         item: Dict[str, Any],
     ) -> Dict[str, List[ReasonlingData]]:
         """
-        Processes a single dataset item to generate a list of SFTCOTData entries.
+        Processes a single dataset item to generate a list of Reasoning entries.
 
         This function performs the following steps:
         1. Extracts and validates the question, answer, and CoTs from the item.
         2. Filters out duplicate and invalid CoTs.
         3. Calculates token lengths for each valid CoT.
         4. Compiles statistical metadata about the CoTs.
-        5. Generates `SFTCOTData` entries for all correct CoTs that meet the length criteria.
+        5. Generates `ReasoningData` entries for all correct CoTs that meet the length criteria.
         6. Returns a dictionary containing the list of generated entries.
 
         Args:
             item (Dict[str, Any]): A single row from the raw dataset.
 
         Returns:
-            Dict[str, List[SFTCOTData]]: A dictionary containing the list of
-                                         SFTCOTData entries, where each entry corresponds
+            Dict[str, List[ReasoningData]]: A dictionary containing the list of
+                                         ReasoningData entries, where each entry corresponds
                                          to a correct Chain of Thought. Returns an empty
                                          list if no valid correct CoTs are found.
         """
@@ -303,7 +316,8 @@ class DataProcessor:
         if not question or not ground_truth:
             logger.warning('Skipping item with missing question or answer.')
             return {'rl_data': []}
-        # New filtering condition: skip if the ground truth is not an integer
+
+        # Skip if the ground truth is not an integer
         if not is_integer(ground_truth):
             logger.debug(
                 f"Skipping item because the answer '{ground_truth}' is not an integer."
@@ -313,7 +327,7 @@ class DataProcessor:
         raw_cots: Iterable[Dict[str, Any]] = get_iter_cots(item.get('cots'))
         if not raw_cots:
             logger.debug(f"No CoTs found for question: '{question[:50]}...'")
-            return {'sft_cots': []}
+            return {'rl_data': []}
 
         # Filter and add token lengths in one pass
         cots_with_len: List[CotWithLength] = []
@@ -363,22 +377,19 @@ class DataProcessor:
             min_cot_token_len=min_cot_token_len,
         )
         formatted_prompt = self._apply_chat_template(question)
-        rl_data = ReasonlingData(prompt=formatted_prompt,
-                                 ground_truth=ground_truth,
-                                 metadata=metadata)
+        rl_data = ReasonlingData(
+            prompt=formatted_prompt,
+            ground_truth=ground_truth,
+            metadata=metadata,
+        )
         return {'rl_data': [rl_data]}
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     """Builds and returns the argument parser for the CLI."""
     parser = argparse.ArgumentParser(
-        description=
-        'Generate SFT (Supervised Fine-Tuning) CoT data from a raw dataset.',
+        description='Generate RL Reasonling data from a raw JSONL dataset.',
         formatter_class=argparse.RawTextHelpFormatter,
-    )
-    parser = argparse.ArgumentParser(
-        description=
-        'Batch process JSONL evaluation files and generate a combined accuracy summary.'
     )
     parser.add_argument('--input_path',
                         type=str,
@@ -388,13 +399,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         type=str,
                         required=True,
                         help='Path for the output JSONL file.')
-    parser.add_argument(
-        '--model_name_or_path',
-        type=str,
-        required=True,
-        help=
-        "The HuggingFace model path for the tokenizer (e.g., '/home/jianzhnie/llmtuner/hfhub/models/Qwen/Qwen2.5-7B')."
-    )
+    parser.add_argument('--model_name_or_path',
+                        type=str,
+                        required=True,
+                        help='The HuggingFace model path for the tokenizer.')
     parser.add_argument('--cache_dir',
                         type=str,
                         default='/home/jianzhnie/llmtuner/hfhub/cache_dir',
@@ -465,7 +473,7 @@ def main() -> None:
     1. Parse command-line arguments.
     2. Initialize the `DataProcessor` to handle tokenization and data transformation.
     3. Load the raw dataset from the specified input path.
-    4. Map the `generate_sft_data` function over the dataset in parallel to process each item.
+    4. Map the `generate_rl_data` function over the dataset in parallel to process each item.
     5. Flatten the resulting list of lists into a single list of SFT data samples.
     6. Convert the flattened list into a HuggingFace `Dataset`.
     7. Save the final processed dataset to the specified output JSONL file.
@@ -503,46 +511,39 @@ def main() -> None:
         logger.exception('Failed to load dataset.')
         sys.exit(1)
 
-    # 4. Generate SFT data entries in parallel
-    logger.info('Generating SFT data...')
-    # Use map with batched=False, as generate_sft_data processes one item at a time.
-    # The output will be a dataset where each row contains a list of dictionaries.
+    # 4. Generate RL Reasonling data entries in parallel
+    logger.info('Generating RL Reasonling data...')
+    # Use map with batched=False, as generate_rl_data processes one item at a time.
     mapped_dataset: Dataset = dataset.map(
         data_processor.generate_rl_data,
         num_proc=args.num_proc,
-        # Remove original columns to create a clean, new dataset.
         remove_columns=dataset.column_names,
-        # Set batched to False as we are processing one item at a time.
-        batched=True,
-        desc='Building  RL Reasonling data',
+        batched=False,
+        desc='Building RL Reasonling data',
     )
-    # The `map` function with batched=False returns a dataset of lists
-    # even when the function returns a single list. We need to flatten it.
 
-    # 5. Flatten the data into a single SFT dataset
-    logger.info('Flattening SFT data...')
-    # The mapped dataset is a list of lists (e.g., [[{...}, {...}], [...],...]).
-    # We need to flatten it into a single list of dictionaries.
-    flat_sft_data: List[ReasonlingData] = list(
+    # 5. Flatten the data into a single RL dataset
+    logger.info('Flattening RL data...')
+    # The map function now returns a list of dictionaries. We extract this list.
+    flat_rl_data: List[ReasonlingData] = list(
         chain.from_iterable(row['rl_data'] for row in mapped_dataset
                             if row['rl_data']))
 
-    logger.info(f'Total SFT CoT data generated: {len(flat_sft_data)}')
-    if not flat_sft_data:
-        logger.warning('No SFT CoT data generated; exiting early.')
+    logger.info(f'Total RL Reasonling data generated: {len(flat_rl_data)}')
+    if not flat_rl_data:
+        logger.warning('No RL Reasonling data generated; exiting early.')
         return
-    sft_dataset: Dataset = Dataset.from_list(flat_sft_data)
+    rl_dataset: Dataset = Dataset.from_list(flat_rl_data)
 
-    # 对数据集进行随机打乱
-    sft_dataset = sft_dataset.shuffle(seed=42)  # 使用种子保证可重复性
+    # Shuffle the dataset
+    rl_dataset = rl_dataset.shuffle(seed=42)
 
     # 6. Save the final dataset
     output_path = Path(args.output_path)
     logger.info(
-        f'Saving final SFT dataset ({len(sft_dataset)} pairs) to {output_path}'
-    )
+        f'Saving final RL dataset ({len(rl_dataset)} pairs) to {output_path}')
     try:
-        sft_dataset.to_json(str(output_path), lines=True)
+        rl_dataset.to_json(str(output_path), lines=True)
     except Exception:
         logger.exception('Failed to save final dataset.')
         sys.exit(1)
@@ -554,14 +555,14 @@ def main() -> None:
         logger.info(
             f'Saving subset of size {subset_size} to {subset_output_path}')
         try:
-            subset_sft_dataset: Dataset = sft_dataset.select(
-                range(min(subset_size, len(sft_dataset))))
-            subset_sft_dataset.to_json(str(subset_output_path), lines=True)
+            subset_rl_dataset: Dataset = rl_dataset.select(
+                range(min(subset_size, len(rl_dataset))))
+            subset_rl_dataset.to_json(str(subset_output_path), lines=True)
         except Exception:
             logger.exception('Failed to save subset dataset.')
             sys.exit(1)
 
-    logger.info('SFT dataset generation completed successfully. ✨')
+    logger.info('RL Reasonling dataset generation completed successfully. ✨')
 
 
 if __name__ == '__main__':
