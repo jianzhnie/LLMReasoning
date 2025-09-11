@@ -245,7 +245,7 @@ class DataProcessor:
         self,
         question: str,
         cot: str,
-        ground_truth: str,
+        system_prompt: str = None,
     ) -> str:
         """
         Applies the chat template to format the prompt and response for SFT.
@@ -262,43 +262,47 @@ class DataProcessor:
             str: The fully formatted prompt-response string.
         """
         if self.args.apply_chat_template_method == 'tokenizer':
-            messages = [
-                {
+            # Use the tokenizer's built-in chat template if available.
+            user_messages = []
+            if system_prompt is not None:
+                user_messages.append({
                     'role': 'system',
-                    'content': self.args.system_prompt
-                },
-                {
-                    'role': 'user',
-                    'content': question
-                },
-            ]
+                    'content': system_prompt
+                })
+            user_messages.append({'role': 'user', 'content': question})
+            assistant_response = []
             # Format the assistant's response with a specific tag format
-            assistant_response = (
-                f'<think>{cot}</think><answer>{ground_truth}</answer>')
-            messages.append({
+            format_response = (f'<think>{cot}')
+            assistant_response.append({
                 'role': 'assistant',
-                'content': assistant_response
+                'content': format_response
             })
 
-            return self.tokenizer.apply_chat_template(
-                messages,
+            formated_user_message = self.tokenizer.apply_chat_template(
+                user_messages,
                 tokenize=False,
-                add_generation_prompt=self.args.add_generation_prompt,
             )
+            formated_assistant_response = self.tokenizer.apply_chat_template(
+                assistant_response,
+                tokenize=False,
+            )
+            return formated_user_message, formated_assistant_response
         elif self.args.apply_chat_template_method == 'formatted':
             # Use custom templates if the tokenizer method is not chosen or available.
-            user_prompt = PROMPT_FORMAT_TEMPLATE.format(
-                system_prompt=self.args.system_prompt,
+            formated_user_message = PROMPT_FORMAT_TEMPLATE.format(
+                system_prompt=system_prompt,
                 user_question=question,
                 additional_prompt=self.args.math_cot_prompt,
             )
-            assistant_response = RESPONSE_FORMAT_TEMPLATE.format(
-                assistant_response=(
-                    f'<think>{cot}</think><answer>{ground_truth}</answer>'))
-            return f'{user_prompt}{assistant_response}'
+            formatedassistant_response = RESPONSE_FORMAT_TEMPLATE.format(
+                assistant_response=(f'<think>{cot}'))
+            return formated_user_message, formatedassistant_response
         else:
-            # 'none' method returns the raw text without any formatting.
-            return f'{question}\n{cot}\n{ground_truth}'
+            logger.warning(
+                f'Invalid apply_chat_template_method: {self.args.apply_chat_template_method}. '
+                'Falling back to "formatted" method.')
+            logger.warning('Using unformatted raw text.')
+            return question, cot
 
     def generate_sft_data(
         self,
