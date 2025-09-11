@@ -309,7 +309,7 @@ class DataProcessor:
                 chosen_messages, add_generation_prompt=False)
             formatted_rejected = self.format_chat_messages(
                 rejected_messages, add_generation_prompt=False)
-        elif self.apply_chat_template_method == 'formatted':
+        elif self.args.apply_chat_template_method == 'formatted':
 
             formatted_prompt = PROMPT_FORMAT_TEMPLATE.format(
                 system_prompt=system_prompt,
@@ -531,7 +531,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--apply_chat_template_method',
         type=str,
-        choices=['tokenizer', 'formatted'],
+        choices=['tokenizer', 'formatted', 'none'],
         default='formatted',
         help=
         'Method for applying chat templates. "tokenizer" uses the HuggingFace tokenizer, "formatted" uses custom string templates, and "none" returns unformatted text.'
