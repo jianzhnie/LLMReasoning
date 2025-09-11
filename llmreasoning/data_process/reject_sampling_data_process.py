@@ -145,6 +145,29 @@ def item_as_bool(value: Any) -> bool:
     return False
 
 
+def get_iter_cots(
+    cots_field: Union[Dict[str, Any], List[Any],
+                      Any]) -> Iterable[Dict[str, Any]]:
+    """
+    Normalizes the 'cots' field from a dataset item to an iterable of dictionaries.
+
+    Args:
+        cots_field (Union[Dict, List, Any]): The raw 'cots' data from a dataset item.
+                                             Can be a dictionary, a list of dictionaries, or other types.
+
+    Returns:
+        Iterable[Dict[str, Any]]: An iterator over the valid CoT entries.
+    """
+    if isinstance(cots_field, dict):
+        # Handle cases where 'cots' is a dictionary of CoTs, e.g., {'key1': {'cot': '...'}, ...}
+        return (v for v in cots_field.values() if isinstance(v, dict))
+    if isinstance(cots_field, list):
+        # Handle cases where 'cots' is a list of CoT dictionaries, e.g., [{'cot': '...'}, ...]
+        return (v for v in cots_field if isinstance(v, dict))
+    # Return an empty iterator for any other type
+    return iter([])
+
+
 def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
     """
     Calculates the number of tokens for a given text using the specified tokenizer.
@@ -167,29 +190,6 @@ def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
             f'Falling back to naive length computation due to tokenization error: {e}'
         )
         return len(text.split())
-
-
-def get_iter_cots(
-    cots_field: Union[Dict[str, Any], List[Any],
-                      Any]) -> Iterable[Dict[str, Any]]:
-    """
-    Normalizes the 'cots' field from a dataset item to an iterable of dictionaries.
-
-    Args:
-        cots_field (Union[Dict, List, Any]): The raw 'cots' data from a dataset item.
-                                             Can be a dictionary, a list of dictionaries, or other types.
-
-    Returns:
-        Iterable[Dict[str, Any]]: An iterator over the valid CoT entries.
-    """
-    if isinstance(cots_field, dict):
-        # Handle cases where 'cots' is a dictionary of CoTs, e.g., {'key1': {'cot': '...'}, ...}
-        return (v for v in cots_field.values() if isinstance(v, dict))
-    if isinstance(cots_field, list):
-        # Handle cases where 'cots' is a list of CoT dictionaries, e.g., [{'cot': '...'}, ...]
-        return (v for v in cots_field if isinstance(v, dict))
-    # Return an empty iterator for any other type
-    return iter([])
 
 
 class DataProcessor:
