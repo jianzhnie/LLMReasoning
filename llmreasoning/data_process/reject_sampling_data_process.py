@@ -98,10 +98,10 @@ class SFTCOTData(TypedDict):
         metadata (MetaData): Statistical metadata about all CoTs for the prompt.
     """
     prompt: str
-    cot: str
+    response: str
     ground_truth: str
     is_correct: bool
-    cot_token_len: int
+    response_token_len: int
     metadata: MetaData
 
 
@@ -241,12 +241,11 @@ class DataProcessor:
             logger.exception('Failed to load tokenizer.')
             sys.exit(1)
 
-    def _apply_chat_template(
-        self,
-        question: str,
-        cot: str,
-        system_prompt: str = None,
-    ) -> str:
+    def _apply_chat_template(self,
+                             question: str,
+                             response: str,
+                             system_prompt: str = None,
+                             math_cot_prompt: str = None) -> str:
         """
         Applies the chat template to format the prompt and response for SFT.
 
@@ -255,8 +254,9 @@ class DataProcessor:
 
         Args:
             question (str): The user's question.
-            cot (str): The correct chain of thought.
-            ground_truth (str): The ground truth answer.
+            response (str): The assistant's response.
+            system_prompt (str, optional): The system prompt. Defaults to None.
+            math_cot_prompt (str, optional): The math COT prompt. Defaults to None.
 
         Returns:
             str: The fully formatted prompt-response string.
@@ -269,10 +269,13 @@ class DataProcessor:
                     'role': 'system',
                     'content': system_prompt
                 })
+            if math_cot_prompt is not None:
+                question = f'{question}\n{math_cot_prompt}'
+
             user_messages.append({'role': 'user', 'content': question})
             assistant_response = []
             # Format the assistant's response with a specific tag format
-            format_response = (f'<think>{cot}')
+            format_response = (f'<think>{response}')
             assistant_response.append({
                 'role': 'assistant',
                 'content': format_response
@@ -292,17 +295,17 @@ class DataProcessor:
             formated_user_message = PROMPT_FORMAT_TEMPLATE.format(
                 system_prompt=system_prompt,
                 user_question=question,
-                additional_prompt=self.args.math_cot_prompt,
+                additional_prompt=math_cot_prompt,
             )
-            formatedassistant_response = RESPONSE_FORMAT_TEMPLATE.format(
-                assistant_response=(f'<think>{cot}'))
-            return formated_user_message, formatedassistant_response
+            formated_assistant_response = RESPONSE_FORMAT_TEMPLATE.format(
+                assistant_response=(f'<think>{response}'))
+            return formated_user_message, formated_assistant_response
         else:
             logger.warning(
                 f'Invalid apply_chat_template_method: {self.args.apply_chat_template_method}. '
                 'Falling back to "formatted" method.')
             logger.warning('Using unformatted raw text.')
-            return question, cot
+            return question, response
 
     def generate_sft_data(
         self,
@@ -394,13 +397,20 @@ class DataProcessor:
         sft_data_list: List[SFTCOTData] = []
         for cot_entry in cots_with_len:
             if cot_entry['is_correct']:
+
+                formated_user_message, formated_assistant_response = self._apply_chat_template(
+                    question,
+                    cot_entry['cot'],
+                    system_prompt=self.args.system_prompt,
+                    qwen_math_cot=self.args.qwen_math_cot,
+                )
                 sft_data_list.append(
                     SFTCOTData(
-                        prompt=question,
-                        cot=cot_entry['cot'],
+                        prompt=formated_user_message,
+                        response=formated_assistant_response,
                         ground_truth=ground_truth,
                         is_correct=cot_entry['is_correct'],
-                        cot_token_len=cot_entry['cot_token_len'],
+                        response_token_len=cot_entry['cot_token_len'],
                         metadata=metadata,
                     ))
         return {'sft_cots': sft_data_list}
@@ -482,12 +492,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--apply_chat_template_method',
         type=str,
-        choices=['tokenizer', 'formatted', 'none'],
+        choices=['tokenizer', 'formatted'],
         default='formatted',
         help='Method for applying chat templates.\n'
         '"tokenizer" uses the HuggingFace tokenizer\'s built-in chat template.\n'
-        '"formatted" uses custom string templates defined in the script.\n'
-        '"none" returns unformatted raw text.')
+        '"formatted" uses custom string templates defined in the script.')
     parser.add_argument(
         '--add_generation_prompt',
         action='store_true',
@@ -528,6 +537,9 @@ def main() -> None:
     """
     # 1. Parse arguments and configure logging
     args = build_arg_parser().parse_args()
+
+    args.system_prompt = args.system_prompt or DEFAULT_SYSTEM_PROMPT
+    args.math_cot_prompt = args.math_cot_prompt or DEFAULT_MATH_COT_PROMPT
 
     # Configure logging level if in debug mode
     if args.debug:
