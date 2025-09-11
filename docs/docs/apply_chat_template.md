@@ -84,7 +84,7 @@
 
 脚本会为每个模型和每种提示词类型打印一个分隔块，展示其聊天模板的最终输出结果。如果加载或应用模板失败，会打印一个清晰的错误信息，方便你排查问题。
 
-例如，对于 Model: Qwen2.5-7B， Prompt Type: openr1_prompt
+例如，对于 Model: Qwen2.5-7B， Prompt Type: openr1_prompt, 模型将使用 OpenR1 的System Prompt 构建 Message, 然后 使用qwen2.5-7b模型的聊天模板进行格式化，最终输出如下：
 
 **示例输出：**
 
@@ -107,7 +107,7 @@ Natalia sold 48+24 = 72 clips altogether in April and May.
 \boxed{72}<|im_end|>
 ```
 
-如果只对 system prompt 应用模板
+另外， 如果只对 system prompt 应用 qwen2.5-7b 的聊天模板， 输出如下：
 
 ```shell
 <|im_start|>system
@@ -119,14 +119,14 @@ You are a helpful AI Assistant that provides well-reasoned and detailed response
 </answer>.<|im_end|>
 ```
 
-如果只对 user query 应用模板
+如果只对 user query 应用 qwen2.5-7b 的聊天模板， 输出如下：
 
 ```shell
 <|im_start|>user
 Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May.How many clips did Natalia sell altogether in April and May?<|im_end|>
 ```
 
-如果只对 assistant response 应用模板
+如果只对 assistant response 应用 qwen2.5-7b 的聊天模板， 输出如下：
 
 
 ```shell
