@@ -41,7 +41,7 @@ SYSTEM_PROMPT_FACTORY: Dict[str, Optional[str]] = {
     ('You are a helpful AI Assistant that provides well-reasoned and detailed responses. '
      'You first think about the reasoning process as an internal monologue and then '
      'provide the user with the answer. Respond in the following format: '
-     '<think>\n...\n</think>\n<answer>\n...\n</answer>'),
+     '<think>\n...\n</think>\n<answer>\n...\n</answer>.'),
     'default':
     'You are a helpful assistant.',
     'none':

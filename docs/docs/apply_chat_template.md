@@ -84,22 +84,54 @@
 
 脚本会为每个模型和每种提示词类型打印一个分隔块，展示其聊天模板的最终输出结果。如果加载或应用模板失败，会打印一个清晰的错误信息，方便你排查问题。
 
+例如，对于 Model: Qwen2.5-7B， Prompt Type: openr1_prompt
+
 **示例输出：**
 
 ```shell
-============================================================
 Model: Qwen2.5-7B
-Prompt Type: default
+Prompt Type: openr1_prompt
 
-<|system|>
-You are a helpful assistant.
-<|endoftext|>
-<|user|>
-Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May.How many clips did Natalia sell altogether in April and May?
-<|endoftext|>
-<|assistant|>
+<|im_start|>system
+You are a helpful AI Assistant that provides well-reasoned and detailed responses. You first think about the reasoning process as an internal monologue and then provide the user with the answer. Respond in the following format: <think>
+...
+</think>
+<answer>
+...
+</answer>.<|im_end|>
+<|im_start|>user
+Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May.How many clips did Natalia sell altogether in April and May?<|im_end|>
+<|im_start|>assistant
 Natalia sold 48/2 = 24 clips in May.
 Natalia sold 48+24 = 72 clips altogether in April and May.
-\boxed{72}
-<|endoftext|>
+\boxed{72}<|im_end|>
+```
+
+如果只对 system prompt 应用模板
+
+```shell
+<|im_start|>system
+You are a helpful AI Assistant that provides well-reasoned and detailed responses. You first think about the reasoning process as an internal monologue and then provide the user with the answer. Respond in the following format: <think>
+...
+</think>
+<answer>
+...
+</answer>.<|im_end|>
+```
+
+如果只对 user query 应用模板
+
+```shell
+<|im_start|>user
+Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May.How many clips did Natalia sell altogether in April and May?<|im_end|>
+```
+
+如果只对 assistant response 应用模板
+
+
+```shell
+<|im_start|>assistant
+Natalia sold 48/2 = 24 clips in May.
+Natalia sold 48+24 = 72 clips altogether in April and May.
+\boxed{72}<|im_end|>
 ```
