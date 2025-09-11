@@ -21,7 +21,7 @@ logging.basicConfig(
     format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
     level=logging.INFO,
 )
-logger = logging.getLogger('sft_cot_builder')
+logger = logging.getLogger(__name__)  # Use __name__ to get the module's name
 
 # Defaults (used only if CLI values are not provided)
 DEFAULT_SYSTEM_PROMPT: Final[str] = (
@@ -87,14 +87,14 @@ class SFTCOTData(TypedDict):
     TypedDict representing a single SFT (Supervised Fine-Tuning) Chain of Thought data sample.
 
     This structure is used for the final processed dataset, where each entry represents
-    a correct CoT paired with its corresponding prompt, ground truth, and metadata.
+    a correct CoT paired with its corresponding prompt, response, ground truth, and metadata.
 
     Attributes:
         prompt (str): The formatted user prompt.
-        cot (str): The correct chain-of-thought reasoning.
+        response (str): The formatted assistant response containing the CoT.
         ground_truth (str): The ground truth answer.
         is_correct (bool): Always True, as this dataset only contains correct CoTs.
-        cot_token_len (int): The token length of the correct CoT.
+        response_token_len (int): The token length of the correct CoT response.
         metadata (MetaData): Statistical metadata about all CoTs for the prompt.
     """
     prompt: str
@@ -160,14 +160,9 @@ def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
     if not text:
         return 0
     try:
-        # Use tokenizer.__call__ for robust handling of special tokens and padding.
-        # `add_special_tokens=False` ensures we only count the text itself.
-        encoded = tokenizer(
-            text,
-            add_special_tokens=False,
-            return_attention_mask=False,
-        )
-        return len(encoded.get('input_ids', []))
+        # Using `tokenizer.tokenize` for a direct token count.
+        tokens = tokenizer.tokenize(text)
+        return len(tokens)
     except Exception as e:
         logger.warning(
             f'Falling back to naive length computation due to tokenization error: {e}'
@@ -210,7 +205,7 @@ class DataProcessor:
             args (argparse.Namespace): The parsed command-line arguments.
         """
         self.args = args
-        self.tokenizer = self._load_tokenizer()
+        self.tokenizer: PreTrainedTokenizerBase = self._load_tokenizer()
 
     def _load_tokenizer(self) -> PreTrainedTokenizerBase:
         """
@@ -241,11 +236,11 @@ class DataProcessor:
             logger.exception('Failed to load tokenizer.')
             sys.exit(1)
 
-    def _apply_chat_template(self,
-                             question: str,
-                             response: str,
-                             system_prompt: str = None,
-                             math_cot_prompt: str = None) -> str:
+    def _apply_chat_template(
+        self,
+        question: str,
+        response: str,
+    ) -> tuple[str, str]:
         """
         Applies the chat template to format the prompt and response for SFT.
 
@@ -255,51 +250,61 @@ class DataProcessor:
         Args:
             question (str): The user's question.
             response (str): The assistant's response.
-            system_prompt (str, optional): The system prompt. Defaults to None.
-            math_cot_prompt (str, optional): The math COT prompt. Defaults to None.
 
         Returns:
-            str: The fully formatted prompt-response string.
+            tuple[str, str]: The formatted prompt and response strings.
         """
+        system_prompt: Optional[str] = self.args.system_prompt
+        math_cot_prompt: Optional[str] = self.args.math_cot_prompt
+
+        # Use the tokenizer's built-in chat template if available.
         if self.args.apply_chat_template_method == 'tokenizer':
             # Use the tokenizer's built-in chat template if available.
-            user_messages = []
-            if system_prompt is not None:
-                user_messages.append({
-                    'role': 'system',
-                    'content': system_prompt
-                })
-            if math_cot_prompt is not None:
-                question = f'{question}\n{math_cot_prompt}'
+            messages = []
+            if system_prompt:
+                messages.append({'role': 'system', 'content': system_prompt})
+            user_question_with_prompt = question
+            if math_cot_prompt:
+                user_question_with_prompt = f'{question}\n{math_cot_prompt}'
 
-            user_messages.append({'role': 'user', 'content': question})
-            assistant_response = []
-            # Format the assistant's response with a specific tag format
-            format_response = (f'<think>{response}')
-            assistant_response.append({
-                'role': 'assistant',
-                'content': format_response
+            messages.append({
+                'role': 'user',
+                'content': user_question_with_prompt
             })
 
-            formated_user_message = self.tokenizer.apply_chat_template(
-                user_messages,
+            assistant_response = []
+            # Format the assistant's response with a specific tag format
+            formatted_response_content = f'<think>{response}'
+            # Format the assistant's response with a specific tag format
+            assistant_response.append({
+                'role': 'assistant',
+                'content': formatted_response_content
+            })
+            # The `response` part will have the assistant's start tag at the beginning, so we prepend it back
+            # or simply use the full formatted text and split it in the main function. Let's make this more robust.
+            # A cleaner way is to create the prompt and response strings separately and return them.
+            # Apply the chat template using the tokenizer
+            formatted_prompt = self.tokenizer.apply_chat_template(
+                messages,
                 tokenize=False,
-            )
-            formated_assistant_response = self.tokenizer.apply_chat_template(
+                add_generation_prompt=self.args.add_generation_prompt)
+            formatted_response = self.tokenizer.apply_chat_template(
                 assistant_response,
                 tokenize=False,
-            )
-            return formated_user_message, formated_assistant_response
+                add_generation_prompt=self.args.add_generation_prompt)
+
+            return formatted_prompt, formatted_response
+
         elif self.args.apply_chat_template_method == 'formatted':
             # Use custom templates if the tokenizer method is not chosen or available.
-            formated_user_message = PROMPT_FORMAT_TEMPLATE.format(
+            formatted_prompt = PROMPT_FORMAT_TEMPLATE.format(
                 system_prompt=system_prompt,
                 user_question=question,
                 additional_prompt=math_cot_prompt,
             )
-            formated_assistant_response = RESPONSE_FORMAT_TEMPLATE.format(
+            formatted_response = RESPONSE_FORMAT_TEMPLATE.format(
                 assistant_response=(f'<think>{response}'))
-            return formated_user_message, formated_assistant_response
+            return formatted_prompt, formatted_response
         else:
             logger.warning(
                 f'Invalid apply_chat_template_method: {self.args.apply_chat_template_method}. '
@@ -310,7 +315,7 @@ class DataProcessor:
     def generate_sft_data(
         self,
         item: Dict[str, Any],
-    ) -> List[SFTCOTData]:
+    ) -> Dict[str, List[SFTCOTData]]:
         """
         Processes a single dataset item to generate a list of SFTCOTData entries.
 
@@ -320,15 +325,16 @@ class DataProcessor:
         3. Calculates token lengths for each valid CoT.
         4. Compiles statistical metadata about the CoTs.
         5. Generates `SFTCOTData` entries for all correct CoTs that meet the length criteria.
-        6. Returns the list of generated entries.
+        6. Returns a dictionary containing the list of generated entries.
 
         Args:
             item (Dict[str, Any]): A single row from the raw dataset.
 
         Returns:
-            List[SFTCOTData]: A list of SFTCOTData entries, where each entry corresponds
-                              to a correct Chain of Thought. Returns an empty list if
-                              no valid correct CoTs are found.
+            Dict[str, List[SFTCOTData]]: A dictionary containing the list of
+                                         SFTCOTData entries, where each entry corresponds
+                                         to a correct Chain of Thought. Returns an empty
+                                         list if no valid correct CoTs are found.
         """
         question: Optional[str] = item.get('question', '').strip()
         ground_truth: Optional[str] = item.get('answer', '').strip()
@@ -380,6 +386,8 @@ class DataProcessor:
         total_answers = len(cots_with_len)
         correct_count = sum(1 for cot in cots_with_len if cot['is_correct'])
         cot_lengths = [cot['cot_token_len'] for cot in cots_with_len]
+
+        # Handle division by zero for avg_cot_token_len
         avg_cot_token_len = sum(
             cot_lengths) / total_answers if total_answers > 0 else 0
         max_cot_token_len = max(cot_lengths, default=0)
@@ -397,17 +405,13 @@ class DataProcessor:
         sft_data_list: List[SFTCOTData] = []
         for cot_entry in cots_with_len:
             if cot_entry['is_correct']:
+                formatted_prompt, formatted_response = self._apply_chat_template(
+                    question, cot_entry['cot'])
 
-                formated_user_message, formated_assistant_response = self._apply_chat_template(
-                    question,
-                    cot_entry['cot'],
-                    system_prompt=self.args.system_prompt,
-                    qwen_math_cot=self.args.qwen_math_cot,
-                )
                 sft_data_list.append(
                     SFTCOTData(
-                        prompt=formated_user_message,
-                        response=formated_assistant_response,
+                        prompt=formatted_prompt,
+                        response=formatted_response,
                         ground_truth=ground_truth,
                         is_correct=cot_entry['is_correct'],
                         response_token_len=cot_entry['cot_token_len'],
@@ -483,7 +487,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help='System prompt template. If not provided, a default will be used.'
     )
     parser.add_argument(
-        '--math-cot-prompt',
+        '--math_cot_prompt',
         type=str,
         default=None,
         help='An additional prompt to append to the user question, e.g., '
