@@ -68,14 +68,14 @@ class MetaData(TypedDict):
     Attributes:
         total_answers (int): The total number of CoTs for a given question.
         correct_count (int): The number of correct CoTs.
-        cots_len_list (List[int]): A list of token lengths for each valid CoT.
+        cots_token_list (List[int]): A list of token lengths for each valid CoT.
         avg_cot_token_len (float): The average token length of all valid CoTs.
         max_cot_token_len (int): The maximum token length among all valid CoTs.
         min_cot_token_len (int): The minimum token length among all valid CoTs.
     """
     total_answers: int
     correct_count: int
-    cots_len_list: List[int]
+    cots_token_list: List[int]
     avg_cot_token_len: float
     max_cot_token_len: int
     min_cot_token_len: int
@@ -395,7 +395,7 @@ class DataProcessor:
         metadata: MetaData = MetaData(
             total_answers=total_answers,
             correct_count=correct_count,
-            cots_len_list=cot_lengths,
+            cots_token_list=cot_lengths,
             avg_cot_token_len=avg_cot_token_len,
             max_cot_token_len=max_cot_token_len,
             min_cot_token_len=min_cot_token_len,
