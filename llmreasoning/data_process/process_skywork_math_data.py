@@ -66,11 +66,16 @@ class RawExample(TypedDict):
     extra_info: ExtraInfo
 
 
+class MetaData(TypedDict):
+    data_source: str
+    model_difficulty: ModelDifficulty
+
+
 class ProcessedExample(TypedDict):
     """Represents the processed structure of an example."""
     prompt: str
     ground_truth: str
-    model_difficulty: ModelDifficulty
+    metadata: MetaData
 
 
 # --------------------
@@ -171,12 +176,11 @@ def convert_example(example: RawExample) -> ProcessedExample:
     ground_truth: str = example['reward_model']['ground_truth'][0]
     model_difficulty: ModelDifficulty = example['extra_info'][
         'model_difficulty']
-
-    return {
-        'prompt': prompt_content,
-        'ground_truth': ground_truth,
-        'model_difficulty': model_difficulty
-    }
+    meta_data: MetaData = MetaData(data_source=example['data_source'],
+                                   model_difficulty=model_difficulty)
+    return ProcessedExample(question=prompt_content,
+                            ground_truth=ground_truth,
+                            meta_data=meta_data)
 
 
 def filter_fn(example: ProcessedExample) -> bool:
@@ -201,8 +205,8 @@ def filter_fn(example: ProcessedExample) -> bool:
 
     # 2. Check ground truth format.
     ground_truth = example.get('ground_truth', '')
-    if not is_valid_integer_string(ground_truth):
-        return False
+    if is_valid_integer_string(ground_truth):
+        return True
 
     # 3. Check model difficulty scores.
     difficulty_dict = example.get('model_difficulty', {})
@@ -210,11 +214,14 @@ def filter_fn(example: ProcessedExample) -> bool:
     qwen7_difficulty = difficulty_dict.get('DeepSeek_R1_Distill_Qwen_7B')
     qwen1p5_difficulty = difficulty_dict.get('DeepSeek_R1_Distill_Qwen_1_5B')
 
+    if qwen32_difficulty is None or qwen7_difficulty is None or qwen1p5_difficulty is None:
+        return False
+
+    if qwen32_difficulty < 10 or qwen7_difficulty < 10 or qwen1p5_difficulty < 10:
+        return True
+
     # A single, correct boolean expression for all conditions.
-    return (qwen32_difficulty is not None and 4 <= qwen32_difficulty <= 15
-            and qwen7_difficulty is not None and 4 <= qwen7_difficulty <= 15
-            and qwen1p5_difficulty is not None
-            and 4 <= qwen1p5_difficulty <= 15)
+    return False
 
 
 # --------------------
@@ -262,7 +269,7 @@ def main() -> None:
         # Assume 'train' split as a common practice.
         dataset = load_dataset(args.data_dir,
                                cache_dir=args.cache_dir,
-                               split='train')
+                               split='math')
         logger.info(f'Loaded dataset with {len(dataset)} examples.')
     except Exception as e:
         logger.exception(f'Failed to load dataset: {e}')
@@ -273,7 +280,13 @@ def main() -> None:
     dataset = dataset.map(process_ground_truth, num_proc=args.num_proc)
 
     logger.info('Converting examples...')
-    processed_dataset = dataset.map(convert_example, num_proc=args.num_proc)
+    processed_dataset = dataset.map(
+        convert_example,
+        remove_columns=dataset.column_names,
+        num_proc=args.num_proc,
+        batched=False,
+        desc='Building RL Reasonling data',
+    )
 
     logger.info('Filtering processed dataset...')
     # The filter function now has corrected logic.
