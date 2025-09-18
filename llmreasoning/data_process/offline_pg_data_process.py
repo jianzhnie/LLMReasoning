@@ -22,14 +22,16 @@ Author: jianzhnie
 
 import argparse
 import logging
+import re
 import sys
-from itertools import chain, product
+from itertools import chain
 from pathlib import Path
 from typing import (Any, Dict, Final, Iterable, List, MutableMapping, Optional,
                     TypedDict, Union)
 
 from datasets import Dataset, load_dataset
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
+
 # -----------------------------------------------------------------------------
 # Configuration & Logging
 # -----------------------------------------------------------------------------
@@ -150,6 +152,7 @@ def item_as_bool(value: Any) -> bool:
         s: str = value.strip().lower()
         return s in {'1', 'true', 't', 'yes', 'y'}
     return False
+
 
 def is_integer(s: str) -> bool:
     """
@@ -332,11 +335,17 @@ class DataProcessor:
                 user_question=question,
                 additional_prompt=math_cot_prompt,
             )
-            formatted_chosen = RESPONSE_FORMAT_TEMPLATE.format(
-                assistant_response=chosen_response)
+            if chosen_response:
+                formatted_chosen = RESPONSE_FORMAT_TEMPLATE.format(
+                    assistant_response=chosen_response)
+            else:
+                formatted_chosen = ''
             # Format the chosen and rejected responses using a custom string template
-            formatted_rejected = RESPONSE_FORMAT_TEMPLATE.format(
-                assistant_response=rejected_response)
+            if rejected_response:
+                formatted_chosen = RESPONSE_FORMAT_TEMPLATE.format(
+                    assistant_response=chosen_response)
+            else:
+                formatted_rejected = ''
 
         else:  # 'none'
             # Return the raw, unformatted text
@@ -446,6 +455,8 @@ class DataProcessor:
                     min_cot_token_len=min_cot_token_len,
                     chosen_cot_token_len=chosen_cot['cot_token_len'],
                     chosen_is_correct=chosen_cot['is_correct'],
+                    rejected_cot_token_len=None,
+                    rejected_is_correct=None,
                 )
 
                 formatted_prompt, formatted_chosen, formatted_rejected = self._apply_chat_template(
@@ -467,53 +478,14 @@ class DataProcessor:
                     avg_cot_token_len=avg_cot_token_len,
                     max_cot_token_len=max_cot_token_len,
                     min_cot_token_len=min_cot_token_len,
-                    chosen_cot_token_len=chosen_cot['cot_token_len'],
-                    chosen_is_correct=chosen_cot['is_correct'],
+                    chosen_cot_token_len=None,
+                    chosen_is_correct=None,
+                    rejected_cot_token_len=rejected_cot['cot_token_len'],
+                    rejected_is_correct=rejected_cot['is_correct'],
                 )
 
                 formatted_prompt, formatted_chosen, formatted_rejected = self._apply_chat_template(
                     question, chosen_cot['cot'], None)
-
-                dpo_pairs.append(
-                    DpoPair(
-                        prompt=formatted_prompt,
-                        ground_truth=ground_truth,
-                        chosen=formatted_chosen,
-                        rejected=formatted_rejected,
-                        metadata=meta_data,
-                    ))
-
-
-
-        # Case 2: Only correct CoTs are available, pair shortest vs. longest
-        elif correct_cots:
-            # Require at least 4 correct CoTs to form a pair to ensure
-            # chosen and rejected are distinct.
-            if len(correct_cots) < 4:
-                return {'pairs': []}
-
-            # Sort by length for the shortest vs longest strategy
-            sorted_by_len: List[CotWithLength] = sorted(
-                correct_cots, key=lambda x: x['cot_token_len'])
-            # Select the 2 shortest as chosen candidates and the 2 longest as rejected
-            chosen_candidates: List[Dict[str, Any]] = sorted_by_len[:2]
-            rejected_candidates: List[Dict[str, Any]] = sorted_by_len[-2:]
-            for chosen_cot, rejected_cot in product(chosen_candidates,
-                                                    rejected_candidates):
-                meta_data = MetaData(
-                    total_answers=total_answers,
-                    correct_count=correct_count,
-                    cots_token_len=cot_lengths,
-                    avg_cot_token_len=avg_cot_token_len,
-                    max_cot_token_len=max_cot_token_len,
-                    min_cot_token_len=min_cot_token_len,
-                    chosen_cot_token_len=chosen_cot['cot_token_len'],
-                    rejected_cot_token_len=rejected_cot['cot_token_len'],
-                    chosen_is_correct=chosen_cot['is_correct'],
-                    rejected_is_correct=rejected_cot['is_correct'],
-                )
-                formatted_prompt, formatted_chosen, formatted_rejected = self._apply_chat_template(
-                    question, chosen_cot['cot'], rejected_cot['cot'])
 
                 dpo_pairs.append(
                     DpoPair(
