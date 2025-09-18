@@ -349,9 +349,6 @@ class DataProcessor:
 
         else:  # 'none'
             # Return the raw, unformatted text
-            logger.warning(
-                f'Invalid apply_chat_template_method: {self.args.apply_chat_template_method}. '
-                'Falling back to "formatted" method.')
             logger.warning('Using unformatted raw text.')
 
             formatted_prompt, formatted_chosen, formatted_rejected = question, chosen_response, rejected_response
@@ -485,7 +482,7 @@ class DataProcessor:
                 )
 
                 formatted_prompt, formatted_chosen, formatted_rejected = self._apply_chat_template(
-                    question, chosen_cot['cot'], None)
+                    question, None, rejected_cot['cot'])
 
                 dpo_pairs.append(
                     DpoPair(
@@ -531,7 +528,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help='Maximum token length for a CoT response.')
     parser.add_argument('--min_cot_len',
                         type=int,
-                        default=1024,
+                        default=1,
                         help='Minimum token length for a CoT response.')
     parser.add_argument(
         '--system_prompt',
