@@ -342,8 +342,8 @@ class DataProcessor:
                 formatted_chosen = ''
             # Format the chosen and rejected responses using a custom string template
             if rejected_response:
-                formatted_chosen = RESPONSE_FORMAT_TEMPLATE.format(
-                    assistant_response=chosen_response)
+                formatted_rejected = RESPONSE_FORMAT_TEMPLATE.format(
+                    assistant_response=rejected_response)
             else:
                 formatted_rejected = ''
 
