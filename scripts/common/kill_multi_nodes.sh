@@ -59,8 +59,8 @@ kill_processes_on_node() {
             # 等待一段时间，检查进程是否已退出
             sleep $KILL_TIMEOUT
 
-            # 2. 检查进程是否仍然存活
-            remaining_pids=\$(ps -p \"\${pids// /,-}\" -o pid= 2>/dev/null)
+            # 2. 检查进程是否仍然存活 - 修复语法错误
+            remaining_pids=\$(ps -p \"\${pids// /,}\" -o pid= 2>/dev/null)
 
             if [ -n \"\$remaining_pids\" ]; then
                 echo \"Processes still alive: \$remaining_pids. Forcing kill (SIGKILL)...\"
@@ -87,7 +87,7 @@ kill_processes_on_node() {
 # ---
 # 主逻辑开始
 # ---
-log "🚀 Starting multi-node process cleanup..."
+log "�� Starting multi-node process cleanup..."
 log "Target keywords: ${KEYWORDS[*]}"
 log "Max concurrent jobs: $MAX_JOBS"
 
@@ -142,4 +142,4 @@ done
 
 # 等待所有后台任务完成
 wait
-log "🎉 All specified processes have been cleaned up on all nodes."
+log "�� All specified processes have been cleaned up on all nodes."

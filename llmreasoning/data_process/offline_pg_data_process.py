@@ -485,7 +485,7 @@ class DataProcessor:
                 )
 
                 formatted_prompt, formatted_chosen, formatted_rejected = self._apply_chat_template(
-                    question, chosen_cot['cot'], None)
+                    question, None, rejected_cot['cot'])
 
                 dpo_pairs.append(
                     DpoPair(
