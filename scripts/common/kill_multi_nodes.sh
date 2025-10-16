@@ -26,6 +26,14 @@ if [ "$#" -gt 1 ]; then
     usage
 fi
 
+# 获取节点列表文件路径参数或使用默认值
+NODE_LIST_FILE=""
+if [ "$#" -eq 1 ]; then
+    NODE_LIST_FILE="$1"
+else
+    NODE_LIST_FILE="/home/jianzhnie/llmtuner/tools/nodes/node_list_all.txt"
+fi
+
 # 设置最大并发数，控制同时处理的节点数量，避免 SSH 连接风暴
 MAX_JOBS=16
 
@@ -37,7 +45,7 @@ KEYWORDS=("llmtuner" "llm_workspace" "mindspeed" "ray" "vllm" "python")
 KILL_TIMEOUT=3
 
 # SSH 超时时间（秒），防止 SSH 卡死
-SSH_TIMEOUT=5
+SSH_TIMEOUT=10
 
 # --- 辅助函数 ---
 # 日志时间戳函数，用于打印带时间戳的日志信息
@@ -45,18 +53,14 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
-# 节点列表文件路径
-NODE_LIST_FILE="/home/jianzhnie/llmtuner/tools/nodes/node_list_all.txt"
-
 # 检查节点列表文件
 if [[ ! -f "$NODE_LIST_FILE" ]]; then
     log "ERROR: Node list file not found: $NODE_LIST_FILE"
     exit 1
 fi
 
-
-# 读取节点列表
-mapfile -t NODES < "$NODE_LIST_FILE"
+# 读取节点列表，过滤掉注释行和空行
+mapfile -t NODES < <(grep -v '^#' "$NODE_LIST_FILE" | grep -v '^$' || true)
 
 if [[ ${#NODES[@]} -eq 0 ]]; then
     log "ERROR: No nodes found in $NODE_LIST_FILE"
@@ -78,10 +82,14 @@ kill_processes_on_node() {
     local remote_cmd="
         # 查找所有匹配关键字的进程 ID，并排除 VS Code 相关的进程
         # 'grep -v' 用于排除指定的关键词
-        pids=\$(ps aux | grep -E '$pattern' | grep -v 'grep -E' | grep -v 'vscode-server' | grep -v 'extension' | grep -v 'agent' | awk '{print \$2}')
+        pids=\$(ps aux | grep -E '$pattern' | grep -v 'grep -E' | grep -v 'vscode-server' | grep -v 'extension' | grep -v 'agent' | awk '{print \\\$2}')
 
         if [ -n \"\$pids\" ]; then
             echo \"Found PIDs: \$pids matching '$pattern'.\"
+
+            # 显示找到的进程详情
+            echo 'Process details:'
+            ps -p \$(echo \$pids | tr ' ' ',') -o pid,ppid,user,args 2>/dev/null || echo 'Unable to retrieve process details'
 
             # 1. 尝试温和终止 (SIGTERM)
             echo 'Attempting to gracefully terminate processes (SIGTERM)...'
@@ -90,8 +98,17 @@ kill_processes_on_node() {
             # 等待一段时间，检查进程是否已退出
             sleep $KILL_TIMEOUT
 
-            # 2. 检查进程是否仍然存活 - 修复语法错误
-            remaining_pids=\$(ps -p \"\${pids// /,}\" -o pid= 2>/dev/null)
+            # 2. 检查进程是否仍然存活
+            # 使用更可靠的方法检查剩余进程
+            remaining_pids=''
+            for pid in \$pids; do
+                if kill -0 \$pid 2>/dev/null; then
+                    remaining_pids=\"\$remaining_pids \$pid\"
+                fi
+            done
+
+            # 移除开头的空格
+            remaining_pids=\${remaining_pids# }
 
             if [ -n \"\$remaining_pids\" ]; then
                 echo \"Processes still alive: \$remaining_pids. Forcing kill (SIGKILL)...\"
@@ -105,7 +122,7 @@ kill_processes_on_node() {
         fi
     "
     # 使用 SSH 执行远程命令，带有超时控制
-    # 使用 `timeout` 外部命令来确保整个 SSH 会话不会永久挂起
+    # 使用 [timeout](file:///Users/jianzhengnie/work_dir/chatgpt/openai-python/src/openai/__init__.py#L129-L129) 外部命令来确保整个 SSH 会话不会永久挂起
     if timeout $SSH_TIMEOUT ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes "$node" "$remote_cmd"; then
         log "✅ Successfully processed node: $node"
     else
@@ -119,6 +136,7 @@ kill_processes_on_node() {
 # ---
 log "🚀 Starting multi-node process cleanup..."
 log "Target keywords: ${KEYWORDS[*]}"
+log "Node list file: $NODE_LIST_FILE"
 log "Max concurrent jobs: $MAX_JOBS"
 
 # ------------------------------------------------------------------------------
@@ -128,6 +146,11 @@ echo "================================================================"
 echo "⚠️  WARNING: This script will kill processes on multiple nodes."
 echo "   It targets processes with keywords: ${KEYWORDS[*]}"
 echo "   This action is irreversible and may interrupt running jobs."
+echo "----------------------------------------------------------------"
+echo "Nodes to be processed:"
+for node in "${NODES[@]}"; do
+    echo "  - $node"
+done
 echo "----------------------------------------------------------------"
 read -p "Type 'yes' to continue, or anything else to abort: " user_confirm
 
