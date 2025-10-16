@@ -8,12 +8,26 @@
 # 脚本已优化，会安全地排除 VS Code 相关的后台进程，并增加了用户确认步骤。
 # ==============================================================================
 
-# --- 全局配置 ---
+# --- 脚本安全设置 ---
+# -e: 命令执行失败时立即退出
+# -u: 尝试使用未定义的变量时立即退出
+# -o pipefail: 管道中的命令失败时，将整个管道的退出码设为失败
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 [node_list_file]"
+    exit 1
+}
+
+# 如果提供了参数，则使用第一个参数作为节点列表文件路径
+if [ "$#" -gt 1 ]; then
+    echo "❌ 错误: 参数过多。"
+    usage
+fi
+
 # 设置最大并发数，控制同时处理的节点数量，避免 SSH 连接风暴
 MAX_JOBS=16
-
-# 节点列表文件路径
-NODE_LIST_FILE="/home/jianzhnie/llmtuner/tools/nodes/node_list_all.txt"
 
 # 定义要 kill 的关键词（支持正则）
 KEYWORDS=("llmtuner" "llm_workspace" "mindspeed" "ray" "vllm" "python")
@@ -26,11 +40,28 @@ KILL_TIMEOUT=3
 SSH_TIMEOUT=5
 
 # --- 辅助函数 ---
-
 # 日志时间戳函数，用于打印带时间戳的日志信息
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
+
+# 节点列表文件路径
+NODE_LIST_FILE="/home/jianzhnie/llmtuner/tools/nodes/node_list_all.txt"
+
+# 检查节点列表文件
+if [[ ! -f "$NODE_LIST_FILE" ]]; then
+    log "ERROR: Node list file not found: $NODE_LIST_FILE"
+    exit 1
+fi
+
+
+# 读取节点列表
+mapfile -t NODES < "$NODE_LIST_FILE"
+
+if [[ ${#NODES[@]} -eq 0 ]]; then
+    log "ERROR: No nodes found in $NODE_LIST_FILE"
+    exit 1
+fi
 
 # ---
 # 函数：终止指定节点上的进程
@@ -73,7 +104,6 @@ kill_processes_on_node() {
             echo 'No matching processes found.'
         fi
     "
-
     # 使用 SSH 执行远程命令，带有超时控制
     # 使用 `timeout` 外部命令来确保整个 SSH 会话不会永久挂起
     if timeout $SSH_TIMEOUT ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes "$node" "$remote_cmd"; then
@@ -87,10 +117,9 @@ kill_processes_on_node() {
 # ---
 # 主逻辑开始
 # ---
-log "�� Starting multi-node process cleanup..."
+log "🚀 Starting multi-node process cleanup..."
 log "Target keywords: ${KEYWORDS[*]}"
 log "Max concurrent jobs: $MAX_JOBS"
-
 
 # ------------------------------------------------------------------------------
 # 添加用户确认步骤
@@ -110,22 +139,6 @@ echo "================================================================"
 log "Confirmation received. Proceeding with cleanup..."
 
 
-# 检查节点列表文件
-if [[ ! -f "$NODE_LIST_FILE" ]]; then
-    log "ERROR: Node list file not found: $NODE_LIST_FILE"
-    exit 1
-fi
-
-
-# 读取节点列表
-mapfile -t NODES < "$NODE_LIST_FILE"
-
-if [[ ${#NODES[@]} -eq 0 ]]; then
-    log "ERROR: No nodes found in $NODE_LIST_FILE"
-    exit 1
-fi
-
-
 # 遍历所有节点，并发执行
 for NODE in "${NODES[@]}"; do
     # 确保节点非空
@@ -142,4 +155,4 @@ done
 
 # 等待所有后台任务完成
 wait
-log "�� All specified processes have been cleaned up on all nodes."
+log "🎉 All specified processes have been cleaned up on all nodes."
