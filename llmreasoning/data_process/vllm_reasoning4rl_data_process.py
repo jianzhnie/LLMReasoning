@@ -41,7 +41,10 @@ DEFAULT_MATH_COT_PROMPT: Final[str] = (
 # These are fallback templates if the tokenizer doesn't have a chat template.
 PROMPT_FORMAT_TEMPLATE: Final[str] = (
     '<|im_start|>system\n{system_prompt}<|im_end|>\n'
-    '<|im_start|>user\n{user_question}\n{additional_prompt}<|im_end|>\n')
+    '<|im_start|>user\n{user_question}\n{additional_prompt}<|im_end|>\n'
+    '<|im_start|>assistant\n')
+
+RESPONSE_FORMAT_TEMPLATE: Final[str] = ('{assistant_response}<|im_end|>\n')
 
 
 # Internal type for CoT data with added token length

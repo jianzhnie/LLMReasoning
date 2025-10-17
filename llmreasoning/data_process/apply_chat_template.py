@@ -10,7 +10,8 @@ conversational input for inference.
 
 import argparse
 import os
-from typing import Dict, List, Optional
+from typing import (Any, Dict, Final, Iterable, List, MutableMapping, Optional,
+                    TypedDict, Union)
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
@@ -51,6 +52,15 @@ SYSTEM_PROMPT_FACTORY: Dict[str, Optional[str]] = {
 # Specific prompt for Qwen models related to math Chain-of-Thought (COT).
 QWEN_MATH_COT: str = (
     'Please reason step by step, and put your final answer within \\boxed{}.')
+
+# String templates for formatting
+# These are fallback templates if the tokenizer doesn't have a chat template.
+PROMPT_FORMAT_TEMPLATE: Final[str] = (
+    '<|im_start|>system\n{system_prompt}<|im_end|>\n'
+    '<|im_start|>user\n{user_question}\n{additional_prompt}<|im_end|>\n'
+    '<|im_start|>assistant\n')
+
+RESPONSE_FORMAT_TEMPLATE: Final[str] = ('{assistant_response}<|im_end|>\n')
 
 # --- Helper Functions ---
 
@@ -152,6 +162,11 @@ def main() -> None:
         '--use-qwen-math-cot',
         action='store_true',
         help='A flag to append the Qwen math COT prompt to the user message.')
+    parser.add_argument(
+        '--model_name',
+        type=str,
+        default='Qwen2.5-7B',
+        help='The name of the model to apply template. Default is Qwen2.5-7B')
 
     args = parser.parse_args()
     model_dir = args.model_dir
@@ -166,26 +181,30 @@ def main() -> None:
         'Natalia sold 48+24 = 72 clips altogether in April and May.\n\\boxed{72}'
     )
 
-    for model_name, model_path_suffix in MODEL_PATHS.items():
-        full_model_path = os.path.join(model_dir, model_path_suffix)
+    # 只处理指定的模型而不是所有模型
+    model_name = args.model_name
+    if model_name not in MODEL_PATHS:
+        print(f"Model '{model_name}' not found in MODEL_PATHS.")
+        return
 
-        if not os.path.exists(full_model_path):
-            print(
-                f"Skipping {model_name}: Local path not found at '{full_model_path}'."
-            )
-            continue
+    model_path_suffix = MODEL_PATHS[model_name]
+    full_model_path = os.path.join(model_dir, model_path_suffix)
 
-        tokenizer = get_tokenizer(full_model_path)
-        if not tokenizer:
-            continue
+    if not os.path.exists(full_model_path):
+        print(f"Local path not found at '{full_model_path}'.")
+        return
 
-        for prompt_name, system_prompt in SYSTEM_PROMPT_FACTORY.items():
-            chat_messages = create_chat_messages(user_message,
-                                                 assistant_response,
-                                                 system_prompt=system_prompt,
-                                                 qwen_math_cot=qwen_math_cot)
-            apply_and_print_template(model_name, prompt_name, tokenizer,
-                                     chat_messages)
+    tokenizer = get_tokenizer(full_model_path)
+    if not tokenizer:
+        return
+
+    for prompt_name, system_prompt in SYSTEM_PROMPT_FACTORY.items():
+        chat_messages = create_chat_messages(user_message,
+                                             assistant_response,
+                                             system_prompt=system_prompt,
+                                             qwen_math_cot=qwen_math_cot)
+        apply_and_print_template(model_name, prompt_name, tokenizer,
+                                 chat_messages)
 
 
 if __name__ == '__main__':
