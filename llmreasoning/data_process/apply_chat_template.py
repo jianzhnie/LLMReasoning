@@ -10,8 +10,7 @@ conversational input for inference.
 
 import argparse
 import os
-from typing import (Any, Dict, Final, Iterable, List, MutableMapping, Optional,
-                    TypedDict, Union)
+from typing import Dict, Final, List, Optional
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
