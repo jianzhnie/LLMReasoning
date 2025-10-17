@@ -65,7 +65,7 @@ RESPONSE_FORMAT_TEMPLATE: Final[str] = ('{assistant_response}<|im_end|>\n')
 
 
 def create_chat_messages(
-        user_message: str,
+        user_prompt: str,
         assistant_response: str,
         system_prompt: Optional[str] = None,
         qwen_math_cot: Optional[str] = None) -> List[Dict[str, str]]:
@@ -73,7 +73,7 @@ def create_chat_messages(
     Creates a chat history list with a system prompt and a user-assistant turn.
 
     Args:
-        user_message (str): The user's message in the conversation.
+        user_prompt (str): The user's message in the conversation.
         assistant_response (str): The assistant's response to the user.
         system_prompt (Optional[str]): The system-level instruction for the chat.
                                         If None, the system role is omitted.
@@ -84,16 +84,18 @@ def create_chat_messages(
         List[Dict[str, str]]: A list representing the chat history,
                               formatted for `tokenizer.apply_chat_template`.
     """
-    chat: List[Dict[str, str]] = []
+    messages: List[Dict[str, str]] = []
     if system_prompt:
-        chat.append({'role': 'system', 'content': system_prompt})
+        messages.append({'role': 'system', 'content': system_prompt})
 
     if qwen_math_cot:
-        user_message = f'{user_message}\n{qwen_math_cot}'
+        user_prompt = f'{user_prompt}\n{qwen_math_cot}'
 
-    chat.append({'role': 'user', 'content': user_message})
-    chat.append({'role': 'assistant', 'content': assistant_response})
-    return chat
+    if user_prompt.strip():
+        messages.append({'role': 'user', 'content': user_prompt})
+    if assistant_response.strip():
+        messages.append({'role': 'assistant', 'content': assistant_response})
+    return messages
 
 
 def get_tokenizer(model_path: str) -> Optional[PreTrainedTokenizer]:
@@ -138,6 +140,36 @@ def apply_and_print_template(model_name: str, prompt_name: str,
         print(
             f"[ERROR] Failed to apply template for {model_name} with prompt '{prompt_name}':\n{e}"
         )
+
+
+def apply_string_formatting_template(
+        model_name: str,
+        prompt_name: str,
+        user_question: str,
+        assistant_response: str,
+        system_prompt: Optional[str] = None,
+        qwen_math_cot: Optional[str] = None) -> None:
+    """
+    Applies the string formatting template and prints the result.
+
+    Args:
+        prompt_name (str): The display name of the system prompt type.
+        user_question (str): The user's message in the conversation.
+        assistant_response (str): The assistant's response to the user.
+        system_prompt (Optional[str]): The system-level instruction for the chat.
+                                       If None, the system role is omitted.
+        qwen_math_cot (Optional[str]): A specific prompt for Qwen math reasoning.
+                                       If provided, it will be appended to the user message.
+    """
+    print(f"\n{'='*60}\nModel: {model_name}\nPrompt Type: {prompt_name}\n")
+    additional_prompt = qwen_math_cot if qwen_math_cot else ''
+    formatted_prompt = PROMPT_FORMAT_TEMPLATE.format(
+        system_prompt=system_prompt or '',
+        user_question=user_question,
+        additional_prompt=additional_prompt)
+    formatted_response = RESPONSE_FORMAT_TEMPLATE.format(
+        assistant_response=assistant_response)
+    print(formatted_prompt + formatted_response)
 
 
 # --- Main Logic ---
@@ -202,8 +234,17 @@ def main() -> None:
                                              assistant_response,
                                              system_prompt=system_prompt,
                                              qwen_math_cot=qwen_math_cot)
+
+        print("Applying tokenizer's chat template:")
         apply_and_print_template(model_name, prompt_name, tokenizer,
                                  chat_messages)
+        print('\nApplying string formatting template:')
+        apply_string_formatting_template(model_name,
+                                         prompt_name,
+                                         user_message,
+                                         assistant_response,
+                                         system_prompt=system_prompt,
+                                         qwen_math_cot=qwen_math_cot)
 
 
 if __name__ == '__main__':
