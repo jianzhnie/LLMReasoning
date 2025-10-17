@@ -153,6 +153,7 @@ def apply_string_formatting_template(
     Applies the string formatting template and prints the result.
 
     Args:
+        model_name (str): The display name of the model.
         prompt_name (str): The display name of the system prompt type.
         user_question (str): The user's message in the conversation.
         assistant_response (str): The assistant's response to the user.
@@ -194,7 +195,7 @@ def main() -> None:
         action='store_true',
         help='A flag to append the Qwen math COT prompt to the user message.')
     parser.add_argument(
-        '--model_name',
+        '--model-name',
         type=str,
         default='Qwen2.5-7B',
         help='The name of the model to apply template. Default is Qwen2.5-7B')
