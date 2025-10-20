@@ -2,11 +2,13 @@ import argparse
 import json
 import logging
 import os  # 导入 os 库用于检查文件路径
+import sys
 from collections import defaultdict
 from typing import Any, Dict, Iterator, List
 
 from datasets import IterableDataset, load_dataset
 from tqdm import tqdm
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 # 设置日志记录
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +34,53 @@ def load_data_streaming(input_path: str) -> IterableDataset:
                         streaming=True)
 
 
-def preprocess(example: Dict[str, Any]) -> Dict[str, Any]:
+def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
+    """
+    Calculates the number of tokens for a given text using the specified tokenizer.
+
+    Args:
+        text (str): The text to tokenize.
+        tokenizer (PreTrainedTokenizerBase): The tokenizer instance.
+
+    Returns:
+        int: The number of tokens.
+    """
+    if not text:
+        return 0
+    try:
+        # Using `tokenizer.tokenize` for a direct token count.
+        tokens = tokenizer.tokenize(text)
+        return len(tokens)
+    except Exception as e:
+        logger.warning(
+            f'Falling back to naive length computation due to tokenization error: {e}'
+        )
+        return len(text.split())
+
+
+def load_tokenizer(args: argparse.Namespace) -> PreTrainedTokenizerBase:
+    """
+    Loads the tokenizer from the specified model name or path.
+
+    Returns:
+        PreTrainedTokenizerBase: The loaded tokenizer instance.
+    """
+    logger.info(f'Loading tokenizer from model: {args.model_name_or_path}')
+    try:
+        tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
+            args.model_name_or_path,
+            use_fast=True,
+            trust_remote_code=True,
+            cache_dir=args.cache_dir,
+        )
+        return tokenizer
+    except Exception:
+        logger.exception('Failed to load tokenizer.')
+        sys.exit(1)
+
+
+def preprocess(example: Dict[str, Any], tokenizer: PreTrainedTokenizerBase,
+               args: argparse.Namespace) -> Dict[str, Any]:
     """
     Preprocesses a single data example by extracting and cleaning relevant fields.
 
@@ -49,12 +97,15 @@ def preprocess(example: Dict[str, Any]) -> Dict[str, Any]:
         gen_data = example.get('gen', '')
         cot_text = gen_data[0] if isinstance(gen_data,
                                              list) and gen_data else ''
-        return {
-            'prompt': example.get('prompt', ''),
-            'cot': cot_text,
-            'is_correct': float(example.get('accuracy', 0.0)) >= 0.5,
-            'answer': example.get('extracted_answer', ''),
-        }
+        cot_token_len = get_token_len(cot_text, tokenizer)
+        # Filter based on min/max token length
+        if args.min_cot_len <= cot_token_len <= args.max_cot_len:
+            return {
+                'prompt': example.get('prompt', ''),
+                'cot': cot_text,
+                'is_correct': float(example.get('accuracy', 0.0)) >= 0.5,
+                'answer': example.get('extracted_answer', ''),
+            }
     except Exception as e:
         logger.warning(f'Skipping example due to preprocessing error: {e}')
         logger.debug(f'Problematic example: {example}')
@@ -190,7 +241,7 @@ def save_to_json(data: List[Dict[str, Any]], output_path: str) -> None:
         print(f'❌ Error saving file: {e}')
 
 
-def main(input_path: str, output_path: str) -> None:
+def main(args: argparse.Namespace) -> None:
     """
     Main function to orchestrate the entire data processing pipeline.
 
@@ -201,11 +252,17 @@ def main(input_path: str, output_path: str) -> None:
         input_path: The file path to the input JSONL file.
         output_path: The file path where the output JSON file will be saved.
     """
+    tokenizer: PreTrainedTokenizerBase = load_tokenizer(args)
+
     print('🔄 Loading dataset...')
-    raw_dataset = load_data_streaming(input_path)
+    raw_dataset = load_data_streaming(args.input)
 
     print('⚙️ Preprocessing data...')
-    mapped_dataset_iterator = raw_dataset.map(preprocess)
+    mapped_dataset_iterator = raw_dataset.map(preprocess,
+                                              fn_kwargs={
+                                                  'tokenizer': tokenizer,
+                                                  'args': args
+                                              })
 
     print('🧩 Grouping data by prompt...')
     grouped_data = group_by_prompt(mapped_dataset_iterator)
@@ -214,7 +271,7 @@ def main(input_path: str, output_path: str) -> None:
     final_data = build_final_output(grouped_data)
 
     print('💾 Saving to JSON...')
-    save_to_json(final_data, output_path)
+    save_to_json(final_data, args.output_path)
 
     print('🎉 Processing complete.')
 
@@ -236,6 +293,18 @@ if __name__ == '__main__':
         required=True,
         help='Path for the output JSON file.',
     )
+    parser.add_argument(
+        '--model_name_or_path',
+        type=str,
+        default='meta-llama/Llama-2-7b-chat-hf',
+        help='Path to the model name or path.',
+    )
+    parser.add_argument(
+        '--cache_dir',
+        type=str,
+        default=None,
+        help='Path to the cache directory.',
+    )
     args = parser.parse_args()
 
-    main(args.input, args.output)
+    main(args)
