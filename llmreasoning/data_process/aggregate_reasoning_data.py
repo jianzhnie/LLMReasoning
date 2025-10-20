@@ -4,14 +4,16 @@ import logging
 import os  # 导入 os 库用于检查文件路径
 import sys
 from collections import defaultdict
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 from datasets import IterableDataset, load_dataset
 from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-# 设置日志记录
-logging.basicConfig(level=logging.INFO)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
@@ -24,6 +26,9 @@ def load_data_streaming(input_path: str) -> IterableDataset:
 
     Returns:
         A streaming `IterableDataset` ready for processing.
+
+    Raises:
+        FileNotFoundError: If the input file does not exist.
     """
     if not os.path.exists(input_path):
         raise FileNotFoundError(
@@ -39,11 +44,11 @@ def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
     Calculates the number of tokens for a given text using the specified tokenizer.
 
     Args:
-        text (str): The text to tokenize.
-        tokenizer (PreTrainedTokenizerBase): The tokenizer instance.
+        text: The text to tokenize.
+        tokenizer: The tokenizer instance.
 
     Returns:
-        int: The number of tokens.
+        The number of tokens.
     """
     if not text:
         return 0
@@ -62,8 +67,14 @@ def load_tokenizer(args: argparse.Namespace) -> PreTrainedTokenizerBase:
     """
     Loads the tokenizer from the specified model name or path.
 
+    Args:
+        args: Command line arguments containing model_name_or_path and cache_dir.
+
     Returns:
-        PreTrainedTokenizerBase: The loaded tokenizer instance.
+        The loaded tokenizer instance.
+
+    Raises:
+        SystemExit: If the tokenizer cannot be loaded.
     """
     logger.info(f'Loading tokenizer from model: {args.model_name_or_path}')
     try:
@@ -73,17 +84,17 @@ def load_tokenizer(args: argparse.Namespace) -> PreTrainedTokenizerBase:
             trust_remote_code=True,
             cache_dir=args.cache_dir,
         )
-        # 添加pad_token以防止某些tokenizer缺少它
+        # Add pad_token to prevent issues with tokenizers that don't have one
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
         return tokenizer
-    except Exception:
-        logger.exception('Failed to load tokenizer.')
+    except Exception as e:
+        logger.exception(f'Failed to load tokenizer: {e}')
         sys.exit(1)
 
 
 def preprocess(example: Dict[str, Any], tokenizer: PreTrainedTokenizerBase,
-               args: argparse.Namespace) -> Dict[str, Any]:
+               args: argparse.Namespace) -> Optional[Dict[str, Any]]:
     """
     Preprocesses a single data example by extracting and cleaning relevant fields.
 
@@ -92,26 +103,30 @@ def preprocess(example: Dict[str, Any], tokenizer: PreTrainedTokenizerBase,
 
     Args:
         example: An input dictionary representing a single data example.
+        tokenizer: The tokenizer to use for token length calculation.
+        args: Command line arguments containing filtering parameters.
 
     Returns:
-        A processed dictionary containing 'prompt', 'cot', 'is_correct', and 'answer'.
+        A processed dictionary containing 'prompt', 'cot', 'is_correct', and 'answer',
+        or None if the example should be filtered out.
     """
     try:
         gen_data = example.get('gen', '')
         cot_text = gen_data[0] if isinstance(gen_data,
                                              list) and gen_data else ''
         cot_token_len = get_token_len(cot_text, tokenizer)
+
         # Filter based on min/max token length
-        if args.min_cot_len <= cot_token_len <= args.max_cot_len:
-            return {
-                'prompt': example.get('prompt', ''),
-                'cot': cot_text,
-                'cot_token_len': cot_token_len,
-                'is_correct': float(example.get('accuracy', 0.0)) >= 0.5,
-                'answer': example.get('extracted_answer', ''),
-            }
-        # 如果不符合token长度要求，返回None
-        return None
+        if not (args.min_cot_len <= cot_token_len <= args.max_cot_len):
+            return None
+
+        return {
+            'prompt': example.get('prompt', ''),
+            'cot': cot_text,
+            'cot_token_len': cot_token_len,
+            'is_correct': float(example.get('accuracy', 0.0)) >= 0.5,
+            'answer': example.get('extracted_answer', ''),
+        }
     except Exception as e:
         logger.warning(f'Skipping example due to preprocessing error: {e}')
         logger.debug(f'Problematic example: {example}')
@@ -119,7 +134,8 @@ def preprocess(example: Dict[str, Any], tokenizer: PreTrainedTokenizerBase,
 
 
 def group_by_prompt(
-        dataset: Iterator[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    dataset: Iterator[Dict[str, Any]]
+) -> Dict[str, List[Dict[str, Union[str, bool, int]]]]:
     """
     Groups data examples by their 'prompt' field.
 
@@ -134,7 +150,8 @@ def group_by_prompt(
         dictionaries, each containing the 'cot', 'is_correct', and 'answer'
         for that prompt.
     """
-    grouped_data: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    grouped_data: Dict[str, List[Dict[str, Union[str, bool,
+                                                 int]]]] = defaultdict(list)
     processed_count = 0
     error_count = 0
 
@@ -170,7 +187,8 @@ def group_by_prompt(
 
 
 def build_final_output(
-        grouped_data: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    grouped_data: Dict[str, List[Dict[str, Union[str, bool, int]]]]
+) -> List[Dict[str, Any]]:
     """
     Builds the final structured output from the grouped data.
 
@@ -200,7 +218,7 @@ def build_final_output(
                 continue
 
             answer = cots_list[0].get('answer', '')
-            # 使用实际的tokenizer来计算token长度而不是简单的split()
+            # Using actual tokenizer to calculate token length instead of simple split()
             cots = {
                 f'cot_{i+1}': {
                     'cot': cot_info['cot'],
@@ -239,13 +257,22 @@ def save_to_json(data: List[Dict[str, Any]], output_path: str) -> None:
     Args:
         data: The final structured data to be saved.
         output_path: The file path where the JSON file will be written.
+
+    Raises:
+        IOError: If there's an error writing to the file.
     """
     try:
+        # Create directory if it doesn't exist
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        print(f'✅ Result saved to: {output_path}')
+        logger.info(f'Result saved to: {output_path}')
     except IOError as e:
-        print(f'❌ Error saving file: {e}')
+        logger.error(f'Error saving file: {e}')
+        raise
 
 
 def main(args: argparse.Namespace) -> None:
@@ -260,11 +287,11 @@ def main(args: argparse.Namespace) -> None:
     """
     tokenizer: PreTrainedTokenizerBase = load_tokenizer(args)
 
-    print('🔄 Loading dataset...')
+    logger.info('Loading dataset...')
     raw_dataset = load_data_streaming(args.input)
 
-    print('⚙️ Preprocessing data...')
-    # 过滤掉None值（预处理失败的数据）
+    logger.info('Preprocessing data...')
+    # Filter out None values (failed preprocessing)
     mapped_dataset_iterator = raw_dataset.map(
         preprocess,
         fn_kwargs={
@@ -274,16 +301,16 @@ def main(args: argparse.Namespace) -> None:
         num_proc=args.num_proc,
     ).filter(lambda x: x is not None)
 
-    print('🧩 Grouping data by prompt...')
+    logger.info('Grouping data by prompt...')
     grouped_data = group_by_prompt(mapped_dataset_iterator)
 
-    print('📦 Building final output format...')
+    logger.info('Building final output format...')
     final_data = build_final_output(grouped_data)
 
-    print('💾 Saving to JSON...')
+    logger.info('Saving to JSON...')
     save_to_json(final_data, args.output)
 
-    print('🎉 Processing complete.')
+    logger.info('Processing complete.')
 
 
 if __name__ == '__main__':
@@ -315,7 +342,7 @@ if __name__ == '__main__':
         default=None,
         help='Path to the cache directory.',
     )
-    # 添加参数控制CoT长度过滤
+    # Add parameters to control CoT length filtering
     parser.add_argument(
         '--min_cot_len',
         type=int,
