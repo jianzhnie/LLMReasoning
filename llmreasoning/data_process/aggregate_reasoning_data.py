@@ -73,6 +73,9 @@ def load_tokenizer(args: argparse.Namespace) -> PreTrainedTokenizerBase:
             trust_remote_code=True,
             cache_dir=args.cache_dir,
         )
+        # 添加pad_token以防止某些tokenizer缺少它
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
         return tokenizer
     except Exception:
         logger.exception('Failed to load tokenizer.')
@@ -103,9 +106,12 @@ def preprocess(example: Dict[str, Any], tokenizer: PreTrainedTokenizerBase,
             return {
                 'prompt': example.get('prompt', ''),
                 'cot': cot_text,
+                'cot_token_len': cot_token_len,
                 'is_correct': float(example.get('accuracy', 0.0)) >= 0.5,
                 'answer': example.get('extracted_answer', ''),
             }
+        # 如果不符合token长度要求，返回None
+        return None
     except Exception as e:
         logger.warning(f'Skipping example due to preprocessing error: {e}')
         logger.debug(f'Problematic example: {example}')
@@ -194,10 +200,11 @@ def build_final_output(
                 continue
 
             answer = cots_list[0].get('answer', '')
+            # 使用实际的tokenizer来计算token长度而不是简单的split()
             cots = {
                 f'cot_{i+1}': {
                     'cot': cot_info['cot'],
-                    'cot_token_len': len(cot_info['cot'].split()),
+                    'cot_token_len': cot_info['cot_token_len'],
                     'is_correct': cot_info['is_correct'],
                 }
                 for i, cot_info in enumerate(cots_list)
@@ -249,8 +256,7 @@ def main(args: argparse.Namespace) -> None:
     structures the final output, and saves it to a JSON file.
 
     Args:
-        input_path: The file path to the input JSONL file.
-        output_path: The file path where the output JSON file will be saved.
+        args: Command line arguments.
     """
     tokenizer: PreTrainedTokenizerBase = load_tokenizer(args)
 
@@ -258,11 +264,15 @@ def main(args: argparse.Namespace) -> None:
     raw_dataset = load_data_streaming(args.input)
 
     print('⚙️ Preprocessing data...')
-    mapped_dataset_iterator = raw_dataset.map(preprocess,
-                                              fn_kwargs={
-                                                  'tokenizer': tokenizer,
-                                                  'args': args
-                                              })
+    # 过滤掉None值（预处理失败的数据）
+    mapped_dataset_iterator = raw_dataset.map(
+        preprocess,
+        fn_kwargs={
+            'tokenizer': tokenizer,
+            'args': args
+        },
+        num_proc=args.num_proc,
+    ).filter(lambda x: x is not None)
 
     print('🧩 Grouping data by prompt...')
     grouped_data = group_by_prompt(mapped_dataset_iterator)
@@ -271,7 +281,7 @@ def main(args: argparse.Namespace) -> None:
     final_data = build_final_output(grouped_data)
 
     print('💾 Saving to JSON...')
-    save_to_json(final_data, args.output_path)
+    save_to_json(final_data, args.output)
 
     print('🎉 Processing complete.')
 
@@ -296,7 +306,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--model_name_or_path',
         type=str,
-        default='meta-llama/Llama-2-7b-chat-hf',
+        default=None,
         help='Path to the model name or path.',
     )
     parser.add_argument(
@@ -304,6 +314,25 @@ if __name__ == '__main__':
         type=str,
         default=None,
         help='Path to the cache directory.',
+    )
+    # 添加参数控制CoT长度过滤
+    parser.add_argument(
+        '--min_cot_len',
+        type=int,
+        default=16,
+        help='Minimum number of tokens in CoT.',
+    )
+    parser.add_argument(
+        '--max_cot_len',
+        type=int,
+        default=65536,
+        help='Maximum number of tokens in CoT.',
+    )
+    parser.add_argument(
+        '--num_proc',
+        type=int,
+        default=32,
+        help='Number of processes to use for parallel processing.',
     )
     args = parser.parse_args()
 
