@@ -32,8 +32,8 @@ class PromptSummary:
     """
     count: int = 0
     answer: str = ''
-    accuracy_count: float = 0.0
-    gen_lengths: List[int] = field(default_factory=list)
+    correct_count: int = 0
+    cots_token_len: List[int] = field(default_factory=list)
 
 
 def safe_mean(data: List[int]) -> float:
@@ -81,6 +81,7 @@ def preprocess_example(
 
         # Safely get and validate other fields
         accuracy: float = float(example.get('accuracy', 0.0))
+        is_correct: bool = accuracy >= 0.5
         answer: str = str(example.get('answer', ''))
         gen_field: Any = example.get('gen', '')
 
@@ -94,8 +95,8 @@ def preprocess_example(
             'prompt': prompt.strip(),
             'answer': answer,
             'count': 1,
-            'accuracy_count': accuracy,
-            'gen_length': gen_length,
+            'is_correct': is_correct,
+            'cot_token_len': gen_length,
         }
     except (ValueError, TypeError) as e:
         print(
@@ -131,9 +132,9 @@ def aggregate_results(dataset: Dataset) -> Dict[str, PromptSummary]:
             prompt, PromptSummary(answer=example.get('answer', '')))
 
         # Accumulate statistics for the current prompt
-        stats.accuracy_count += example['accuracy_count']
+        stats.correct_count += example['is_correct']
         stats.count += example['count']
-        stats.gen_lengths.append(example['gen_length'])
+        stats.cots_token_len.append(example['cot_token_len'])
 
     return prompt_stats
 
@@ -182,22 +183,19 @@ def analyze_and_get_summary(jsonl_file_path: str,
 
         summary: List[Dict[str, Any]] = []
         for prompt, stats in prompt_stats.items():
-            count: int = stats.count
-            average_accuracy: float = stats.accuracy_count / count if count > 0 else 0.0
-            average_gen_length: float = safe_mean(stats.gen_lengths)
-            max_gen_length: int = max(
-                stats.gen_lengths) if stats.gen_lengths else 0
+            avg_cot_token_len: float = safe_mean(stats.cots_token_len)
+            max_cot_token_len: int = max(
+                stats.cots_token_len) if stats.cots_token_len else 0
 
             # Create a clean dictionary for JSON output
             summary.append({
                 'prompt': prompt,
                 'answer': stats.answer,
-                'count': count,
-                'total_accuracy_count': stats.accuracy_count,
-                'average_accuracy': average_accuracy,
-                'max_gen_length': max_gen_length,
-                'avg_gen_length': average_gen_length,
-                'gen_lengths': stats.gen_lengths,
+                'count': stats.count,
+                'correct_count': stats.correct_count,
+                'max_cot_token_len': max_cot_token_len,
+                'avg_cot_token_len': avg_cot_token_len,
+                'cots_token_len': stats.cots_token_len,
             })
 
         print(
