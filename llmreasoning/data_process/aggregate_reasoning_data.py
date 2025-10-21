@@ -126,10 +126,10 @@ def preprocess(example: Dict[str, Any], tokenizer: PreTrainedTokenizerBase,
 
         return {
             'prompt': example.get('prompt', ''),
+            'answer': example.get('answer', ''),
+            'is_correct': example.get('accuracy', 0.0) >= 0.5,
             'cot': cot_text,
             'cot_token_len': cot_token_len,
-            'is_correct': example.get('accuracy', 0.0) >= 0.5,
-            'answer': example.get('answer', ''),
         }
     except Exception as e:
         logger.warning(f'Skipping example due to preprocessing error: {e}')
@@ -175,9 +175,9 @@ def group_by_prompt(
 
             grouped_data[prompt].append({
                 'cot': item['cot'],
-                'cot_token_len': item['cot_token_len'],
-                'is_correct': item['is_correct'],
                 'answer': item['answer'],
+                'is_correct': item['is_correct'],
+                'cot_token_len': item['cot_token_len'],
             })
             processed_count += 1
         except Exception as e:
@@ -229,9 +229,9 @@ def build_final_output(
                 # Rely on cot_token_len passed by group_by_prompt, no need to recalculate
                 cots[f'cot_{i+1}'] = {
                     'cot': cot_info.get('cot', ''),
+                    'is_correct': cot_info.get('is_correct', False),
                     # cot_token_len should be an int, default to 0 if missing
                     'cot_token_len': cot_info.get('cot_token_len', 0),
-                    'is_correct': cot_info.get('is_correct', False),
                 }
 
             final_output.append({
