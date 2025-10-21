@@ -6,8 +6,14 @@ patterns, performing validation on each record before merging.
 import argparse
 import glob
 import json
+import logging
 import os
 from typing import Any, Dict, Final, List, Tuple
+
+# Configure logging
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Define the mandatory fields expected in each JSONL record.
 # The `is_valid_field_content` function relies on this list for field-specific validation.
@@ -19,17 +25,20 @@ def is_valid_field_content(field_name: str, content: Any) -> Tuple[bool, str]:
     Validates the content of a specific field within a JSONL record against
     predefined rules based on the field name.
 
-    :param field_name: The name of the field being validated (e.g., 'prompt', 'accuracy').
-    :param content: The content/value of the field.
-    :return: A tuple where the first element is True if valid, False otherwise,
-             and the second element is an empty string for valid content or an
-             error message for invalid content.
+    Args:
+        field_name: The name of the field being validated (e.g., 'prompt', 'accuracy').
+        content: The content/value of the field.
+
+    Returns:
+        A tuple where the first element is True if valid, False otherwise,
+        and the second element is an empty string for valid content or an
+        error message for invalid content.
     """
     # Check if content is empty (None, or an empty/whitespace-only string)
     if content is None or (isinstance(content, str) and content.strip() == ''):
         return False, 'Content is empty'
 
-    # --- Validation for specific fields ---
+    # Validation for specific fields
 
     # 'prompt' and 'answer' fields must be non-empty strings.
     if field_name in ['prompt', 'answer']:
@@ -62,7 +71,7 @@ def is_valid_field_content(field_name: str, content: Any) -> Tuple[bool, str]:
         if not all(isinstance(item, str) for item in content):
             return False, "'gen' list items must be strings"
         # Custom rule: checks for a specific placeholder value in the first item
-        if '999, 999' in content[0]:
+        if content and '999, 999' in content[0]:
             return False, "'gen' list cannot contain the placeholder \"999, 999\" in the first element"
 
     return True, ''
@@ -76,14 +85,15 @@ def merge_jsonl_files(patterns: List[str],
     Matches JSONL files based on wildcard patterns, validates their contents,
     and merges valid records into a single output JSONL file.
 
-    :param patterns: List of file path patterns (e.g., ['data/*.jsonl', 'logs/**/*.jsonl']).
-    :param output_file: The path to the output JSONL file.
-    :param recursive: Whether to enable recursive directory matching (using **).
+    Args:
+        patterns: List of file path patterns (e.g., ['data/*.jsonl', 'logs/**/*.jsonl']).
+        output_file: The path to the output JSONL file.
+        recursive: Whether to enable recursive directory matching (using **).
     """
     matched_files: List[str] = []
     seen_files: set = set()
 
-    print('🔍 Searching for matching files...')
+    logger.info('Searching for matching files...')
     for pattern in patterns:
         # Use glob to find files matching the pattern, respecting the recursive flag.
         files = glob.glob(pattern, recursive=recursive)
@@ -94,26 +104,31 @@ def merge_jsonl_files(patterns: List[str],
                 seen_files.add(file_path)
 
     if not matched_files:
-        print('❌ No matching files found.')
+        logger.warning('No matching files found.')
         return
 
     # Sort by filename to ensure a predictable and consistent merge order
     matched_files.sort()
 
-    print(f'✅ Found {len(matched_files)} matching files:')
-    for f in matched_files:
-        print(f'   - {f}')
+    logger.info(f'Found {len(matched_files)} matching files:')
+    for file_path in matched_files:
+        logger.info(f'   - {file_path}')
 
-    # --- Start merging process ---
+    # Start merging process
     merged_count: int = 0
     skipped_count: int = 0
     expected_keys: List[str] = EXPECTED_KEYS
 
     try:
+        # Create directory if it doesn't exist
+        output_dir = os.path.dirname(output_file)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
         # Open the output file for writing (will overwrite if exists)
         with open(output_file, 'w', encoding='utf-8') as outfile:
             for file_path in matched_files:
-                print(f'\n📌 Processing: {file_path}')
+                logger.info(f'Processing: {file_path}')
                 try:
                     # Open the input file for reading
                     with open(file_path, 'r', encoding='utf-8') as infile:
@@ -132,8 +147,8 @@ def merge_jsonl_files(patterns: List[str],
                                     if key not in data
                                 ]
                                 if missing_keys:
-                                    print(
-                                        f'❌ Skipped: Line {line_num} in file {file_path} missing fields: {missing_keys}'
+                                    logger.warning(
+                                        f'Skipped: Line {line_num} in file {file_path} missing fields: {missing_keys}'
                                     )
                                     skipped_count += 1
                                     continue
@@ -148,8 +163,8 @@ def merge_jsonl_files(patterns: List[str],
                                             f'{key}({error_msg})')
 
                                 if invalid_fields:
-                                    print(
-                                        f'❌ Skipped: Invalid field content in line {line_num} of file {file_path}: {"; ".join(invalid_fields)}'
+                                    logger.warning(
+                                        f'Skipped: Invalid field content in line {line_num} of file {file_path}: {"; ".join(invalid_fields)}'
                                     )
                                     skipped_count += 1
                                     continue
@@ -159,25 +174,26 @@ def merge_jsonl_files(patterns: List[str],
                                 merged_count += 1
 
                             except json.JSONDecodeError as e:
-                                print(
-                                    f'❌ Skipped: JSON parsing error on line {line_num} of file {file_path}: {e}'
+                                logger.warning(
+                                    f'Skipped: JSON parsing error on line {line_num} of file {file_path}: {e}'
                                 )
                                 skipped_count += 1
 
                 except IOError as e:
-                    print(f'❌ Error reading file {file_path}: {e}')
+                    logger.error(f'Error reading file {file_path}: {e}')
                     skipped_count += 1
                     # Continue to the next file if one fails to read
 
-        # --- Final summary ---
-        print('\n\n✅ Merge completed!')
-        print(f'   - Written {merged_count} valid records.')
-        print(f'   - Skipped {skipped_count} invalid or problematic records.')
-        print(f'📁 Output file: {output_file}')
+        # Final summary
+        logger.info('Merge completed!')
+        logger.info(f'   - Written {merged_count} valid records.')
+        logger.info(
+            f'   - Skipped {skipped_count} invalid or problematic records.')
+        logger.info(f'Output file: {output_file}')
 
     except IOError as e:
-        print(
-            f'❌ Critical Error: Could not write to output file {output_file}: {e}'
+        logger.error(
+            f'Critical Error: Could not write to output file {output_file}: {e}'
         )
 
 
