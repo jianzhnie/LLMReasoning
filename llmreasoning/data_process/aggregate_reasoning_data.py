@@ -1,7 +1,7 @@
 import argparse
 import json
 import logging
-import os  # 导入 os 库用于检查文件路径
+import os
 import sys
 from collections import defaultdict
 from typing import Any, Dict, Iterator, List, Optional, Union
@@ -33,7 +33,7 @@ def load_data_streaming(input_path: str) -> IterableDataset:
     if not os.path.exists(input_path):
         raise FileNotFoundError(
             f"Error: Input file not found at '{input_path}'")
-    # 使用 streaming=True 确保大型数据集的流式加载
+    # Use streaming=True to ensure large datasets are loaded in streaming mode
     return load_dataset('json',
                         data_files=input_path,
                         split='train',
@@ -60,7 +60,8 @@ def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
         logger.warning(
             f'Falling back to naive length computation due to tokenization error: {e}'
         )
-        # 针对极长的 CoT，如果出现内存或分词错误，提供一个保守的备用方案
+        # For extremely long CoT, if memory or tokenization errors occur,
+        # provide a conservative fallback solution
         return len(text.split())
 
 
@@ -126,7 +127,7 @@ def preprocess(example: Dict[str, Any], tokenizer: PreTrainedTokenizerBase,
             'cot': cot_text,
             'cot_token_len': cot_token_len,
             'is_correct': float(example.get('accuracy', 0.0)) >= 0.5,
-            'answer': example.get('extracted_answer', ''),
+            'answer': example.get('answer', ''),
         }
     except Exception as e:
         logger.warning(f'Skipping example due to preprocessing error: {e}')
@@ -223,10 +224,10 @@ def build_final_output(
             # Using actual tokenizer to calculate token length instead of simple split()
             cots = {}
             for i, cot_info in enumerate(cots_list):
-                # 依赖于 group_by_prompt 传递的 cot_token_len，不再重复计算
+                # Rely on cot_token_len passed by group_by_prompt, no need to recalculate
                 cots[f'cot_{i+1}'] = {
                     'cot': cot_info.get('cot', ''),
-                    # cot_token_len 应该是一个 int，如果缺少，默认为 0
+                    # cot_token_len should be an int, default to 0 if missing
                     'cot_token_len': cot_info.get('cot_token_len', 0),
                     'is_correct': cot_info.get('is_correct', False),
                 }
@@ -303,11 +304,11 @@ def main(args: argparse.Namespace) -> None:
         },
     ).filter(lambda x: x is not None)
 
-    # 明确将其转换为 Python 迭代器，以便 group_by_prompt 可以逐个处理
+    # Explicitly convert to a Python iterator so group_by_prompt can process one by one
     python_iterator = iter(mapped_dataset_iterator)
 
     logger.info('Grouping data by prompt...')
-    # 将 Python 迭代器传递给 group_by_prompt
+    # Pass the Python iterator to group_by_prompt
     grouped_data = group_by_prompt(python_iterator)
 
     logger.info('Building final output format...')
@@ -339,7 +340,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--model_name_or_path',
         type=str,
-        required=True,  # 强烈建议要求用户提供模型路径，否则无法正确分词
+        required=True,
         help='Path to the model name or path.',
     )
     parser.add_argument(
@@ -364,13 +365,13 @@ if __name__ == '__main__':
     parser.add_argument(
         '--num_proc',
         type=int,
-        default=1,  # 🌟 优化：默认为 1，以保持流式和内存稳定
+        default=1,
         help=
         'Number of processes to use for parallel processing (set to 1 for streaming).',
     )
     args = parser.parse_args()
 
-    # 警告：如果用户将 num_proc 设置为大于 1，则流式特性可能失效
+    # Warning: If the user sets num_proc > 1, the streaming feature may be disabled
     if args.num_proc > 1:
         logger.warning(
             'Using num_proc > 1 with IterableDataset will cache/download data and may increase memory usage significantly, which might be the cause of your original issue with long CoTs.'
