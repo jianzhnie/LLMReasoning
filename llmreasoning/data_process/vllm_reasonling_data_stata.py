@@ -15,7 +15,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from datasets import Dataset, load_dataset
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
@@ -36,12 +36,12 @@ class PromptSummary:
     cots_token_len: List[int] = field(default_factory=list)
 
 
-def safe_mean(data: List[int]) -> float:
+def safe_mean(data: List[Union[int, float]]) -> float:
     """
     Calculates the mean of a list of numbers, handling empty lists gracefully.
 
     Args:
-        data: A list of integers.
+        data: A list of integers or floats.
 
     Returns:
         The mean as a float, or 0.0 if the list is empty.
