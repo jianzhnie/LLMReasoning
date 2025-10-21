@@ -6,7 +6,7 @@ import sys
 from collections import defaultdict
 from typing import Any, Dict, Iterator, List, Optional, Union
 
-from datasets import IterableDataset, load_dataset
+from datasets import Dataset, load_dataset
 from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
@@ -17,15 +17,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_data_streaming(input_path: str) -> IterableDataset:
+def load_data(input_path: str) -> Dataset:
     """
-    Loads a JSONL dataset in streaming mode.
+    Loads a JSONL dataset in standard mode (required for effective num_proc > 1).
 
     Args:
         input_path: The file path to the input JSONL file.
 
     Returns:
-        A streaming `IterableDataset` ready for processing.
+        A standard `Dataset` ready for processing.
 
     Raises:
         FileNotFoundError: If the input file does not exist.
@@ -33,11 +33,13 @@ def load_data_streaming(input_path: str) -> IterableDataset:
     if not os.path.exists(input_path):
         raise FileNotFoundError(
             f"Error: Input file not found at '{input_path}'")
-    # Use streaming=True to ensure large datasets are loaded in streaming mode
-    return load_dataset('json',
-                        data_files=input_path,
-                        split='train',
-                        streaming=True)
+
+    logger.info(f"Loading dataset from '{input_path}' in standard mode...")
+    try:
+        return load_dataset('json', data_files=input_path, split='train')
+    except Exception as e:
+        logger.error(f'Failed to load dataset: {e}')
+        sys.exit(1)
 
 
 def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
@@ -292,24 +294,21 @@ def main(args: argparse.Namespace) -> None:
     tokenizer: PreTrainedTokenizerBase = load_tokenizer(args)
 
     logger.info('Loading dataset...')
-    raw_dataset = load_data_streaming(args.input)
+    raw_dataset = load_data(args.input)
 
     logger.info('Preprocessing data...')
     # Filter out None values (failed preprocessing)
-    mapped_dataset_iterator = raw_dataset.map(
+    mapped_dataset = raw_dataset.map(
         preprocess,
         fn_kwargs={
             'tokenizer': tokenizer,
             'args': args
         },
+        num_proc=args.num_proc,
     ).filter(lambda x: x is not None)
 
-    # Explicitly convert to a Python iterator so group_by_prompt can process one by one
-    python_iterator = iter(mapped_dataset_iterator)
-
     logger.info('Grouping data by prompt...')
-    # Pass the Python iterator to group_by_prompt
-    grouped_data = group_by_prompt(python_iterator)
+    grouped_data = group_by_prompt(mapped_dataset)
 
     logger.info('Building final output format...')
     final_data = build_final_output(grouped_data)
@@ -367,14 +366,8 @@ if __name__ == '__main__':
         type=int,
         default=1,
         help=
-        'Number of processes to use for parallel processing (set to 1 for streaming).',
+        'Number of processes to use for parallel processing (set > 1 for faster map).',
     )
     args = parser.parse_args()
-
-    # Warning: If the user sets num_proc > 1, the streaming feature may be disabled
-    if args.num_proc > 1:
-        logger.warning(
-            'Using num_proc > 1 with IterableDataset will cache/download data and may increase memory usage significantly, which might be the cause of your original issue with long CoTs.'
-        )
 
     main(args)

@@ -40,11 +40,19 @@ def is_valid_field_content(field_name: str, content: Any) -> Tuple[bool, str]:
 
     # Validation for specific fields
 
-    # 'prompt' and 'answer' fields must be non-empty strings.
-    if field_name in ['prompt', 'answer']:
+    # 'prompt' field must be a non-empty string
+    if field_name == 'prompt':
         if not isinstance(content, str):
             return False, f"'{field_name}' must be a string"
         # The empty check is already covered above, but kept this block for type safety.
+
+    # 'answer' field can be a string or number
+    elif field_name == 'answer':
+        if not isinstance(content, (str, int, float)):
+            return False, f"'{field_name}' must be a string or number"
+        # If it's a string, make sure it's not empty
+        if isinstance(content, str) and content.strip() == '':
+            return False, f"'{field_name}' cannot be an empty string"
 
     # 'accuracy' field validation
     elif field_name == 'accuracy':
