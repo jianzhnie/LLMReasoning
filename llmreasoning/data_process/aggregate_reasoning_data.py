@@ -128,7 +128,7 @@ def preprocess(example: Dict[str, Any], tokenizer: PreTrainedTokenizerBase,
             'prompt': example.get('prompt', ''),
             'cot': cot_text,
             'cot_token_len': cot_token_len,
-            'is_correct': float(example.get('accuracy', 0.0)) >= 0.5,
+            'is_correct': example.get('accuracy', 0.0) >= 0.5,
             'answer': example.get('answer', ''),
         }
     except Exception as e:
@@ -364,7 +364,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--num_proc',
         type=int,
-        default=1,
+        default=32,
         help=
         'Number of processes to use for parallel processing (set > 1 for faster map).',
     )
