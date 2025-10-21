@@ -33,6 +33,7 @@ def load_data_streaming(input_path: str) -> IterableDataset:
     if not os.path.exists(input_path):
         raise FileNotFoundError(
             f"Error: Input file not found at '{input_path}'")
+    # 使用 streaming=True 确保大型数据集的流式加载
     return load_dataset('json',
                         data_files=input_path,
                         split='train',
@@ -54,12 +55,12 @@ def get_token_len(text: str, tokenizer: PreTrainedTokenizerBase) -> int:
         return 0
     try:
         # Using `tokenizer.tokenize` for a direct token count.
-        tokens = tokenizer.tokenize(text)
-        return len(tokens)
+        return len(tokenizer.encode(text, add_special_tokens=False))
     except Exception as e:
         logger.warning(
             f'Falling back to naive length computation due to tokenization error: {e}'
         )
+        # 针对极长的 CoT，如果出现内存或分词错误，提供一个保守的备用方案
         return len(text.split())
 
 
@@ -155,7 +156,7 @@ def group_by_prompt(
     processed_count = 0
     error_count = 0
 
-    for item in tqdm(dataset, desc='Processing Data'):
+    for item in tqdm(dataset, desc='Grouping Data by Prompt'):
         try:
             # Skip None items (failed preprocessing)
             if item is None:
@@ -171,13 +172,14 @@ def group_by_prompt(
 
             grouped_data[prompt].append({
                 'cot': item['cot'],
+                'cot_token_len': item['cot_token_len'],
                 'is_correct': item['is_correct'],
                 'answer': item['answer'],
             })
             processed_count += 1
         except Exception as e:
             error_count += 1
-            logger.warning(f'Skipping example due to grouping error: {e}')
+            logger.exception(f'Skipping example due to grouping error: {e}')
             logger.debug(f'Problematic item: {item}')
 
     logger.info(
@@ -219,14 +221,15 @@ def build_final_output(
 
             answer = cots_list[0].get('answer', '')
             # Using actual tokenizer to calculate token length instead of simple split()
-            cots = {
-                f'cot_{i+1}': {
-                    'cot': cot_info['cot'],
-                    'cot_token_len': cot_info['cot_token_len'],
-                    'is_correct': cot_info['is_correct'],
+            cots = {}
+            for i, cot_info in enumerate(cots_list):
+                # 依赖于 group_by_prompt 传递的 cot_token_len，不再重复计算
+                cots[f'cot_{i+1}'] = {
+                    'cot': cot_info.get('cot', ''),
+                    # cot_token_len 应该是一个 int，如果缺少，默认为 0
+                    'cot_token_len': cot_info.get('cot_token_len', 0),
+                    'is_correct': cot_info.get('is_correct', False),
                 }
-                for i, cot_info in enumerate(cots_list)
-            }
 
             final_output.append({
                 'id': str(id_counter),
@@ -298,11 +301,14 @@ def main(args: argparse.Namespace) -> None:
             'tokenizer': tokenizer,
             'args': args
         },
-        num_proc=args.num_proc,
     ).filter(lambda x: x is not None)
 
+    # 明确将其转换为 Python 迭代器，以便 group_by_prompt 可以逐个处理
+    python_iterator = iter(mapped_dataset_iterator)
+
     logger.info('Grouping data by prompt...')
-    grouped_data = group_by_prompt(mapped_dataset_iterator)
+    # 将 Python 迭代器传递给 group_by_prompt
+    grouped_data = group_by_prompt(python_iterator)
 
     logger.info('Building final output format...')
     final_data = build_final_output(grouped_data)
@@ -333,7 +339,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--model_name_or_path',
         type=str,
-        default=None,
+        required=True,  # 强烈建议要求用户提供模型路径，否则无法正确分词
         help='Path to the model name or path.',
     )
     parser.add_argument(
@@ -358,9 +364,16 @@ if __name__ == '__main__':
     parser.add_argument(
         '--num_proc',
         type=int,
-        default=32,
-        help='Number of processes to use for parallel processing.',
+        default=1,  # 🌟 优化：默认为 1，以保持流式和内存稳定
+        help=
+        'Number of processes to use for parallel processing (set to 1 for streaming).',
     )
     args = parser.parse_args()
+
+    # 警告：如果用户将 num_proc 设置为大于 1，则流式特性可能失效
+    if args.num_proc > 1:
+        logger.warning(
+            'Using num_proc > 1 with IterableDataset will cache/download data and may increase memory usage significantly, which might be the cause of your original issue with long CoTs.'
+        )
 
     main(args)

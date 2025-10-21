@@ -5,7 +5,7 @@ import json
 import os
 from typing import Any, List, Tuple
 
-keys = ['question', 'answer', 'gen', 'accuracy']
+keys = ['prompt', 'answer', 'gen', 'accuracy']
 
 
 def is_valid_field_content(field_name: str, content: Any) -> Tuple[bool, str]:
@@ -34,7 +34,7 @@ def is_valid_field_content(field_name: str, content: Any) -> Tuple[bool, str]:
                 return False, "accuracy must be boolean, numeric (0/1) or string ('true'/'false'/'0'/'1')"
 
     # question and answer fields should be non-empty strings
-    if field_name in ['question', 'answer']:
+    if field_name in ['prompt']:
         if not isinstance(content, str):
             return False, f'{field_name} must be a string'
         if content.strip() == '':
@@ -46,6 +46,10 @@ def is_valid_field_content(field_name: str, content: Any) -> Tuple[bool, str]:
             return False, 'gen must be a list'
         if len(content) == 0:
             return False, 'gen list cannot be empty'
+        if not all(isinstance(item, str) for item in content):
+            return False, 'gen list items must be strings'
+        if '999, 999' in content[0]:
+            return False, 'gen list cannot contain "999, 999"'
 
     return True, ''
 
