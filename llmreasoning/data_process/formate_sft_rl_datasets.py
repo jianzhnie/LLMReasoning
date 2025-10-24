@@ -58,11 +58,6 @@ PROMPT_FORMAT_TEMPLATE: Final[str] = (
 
 RESPONSE_FORMAT_TEMPLATE: Final[str] = ('{assistant_response}<|im_end|>\n')
 
-# Constants
-DEFAULT_INPUT_KEY: str = 'prompt'
-DEFAULT_LABEL_KEY: str = 'answer'
-DEFAULT_RESPONSE_KEY: str = 'gen'
-
 # --- Helper Functions ---
 
 
@@ -114,9 +109,6 @@ def apply_chat_template(
             'role': 'assistant',
             'content': formatted_response_content
         })
-        # The `response` part will have the assistant's start tag at the beginning, so we prepend it back
-        # or simply use the full formatted text and split it in the main function. Let's make this more robust.
-        # A cleaner way is to create the prompt and response strings separately and return them.
         # Apply the chat template using the tokenizer
         formatted_prompt = tokenizer.apply_chat_template(
             messages,
@@ -281,15 +273,6 @@ class DatasetProcessor:
 
         Args:
             dataset (Dataset): The Hugging Face Dataset object to process.
-            tokenizer (PreTrainedTokenizerBase): The tokenizer used for formatting.
-            output_path (str): The path to the output .jsonl file.
-            input_key (str): The key to access the input text in the dataset.
-            label_key (str): The key to access the labels/answers in the dataset.
-            system_prompt (Optional[str]): Optional system prompt to pass to `preprocess_data`.
-            qwen_math_cot (Optional[str]): Optional Chain-of-Thought prompt to pass to `preprocess_data`.
-            apply_chat_template_method (str): Method to use for applying chat template.
-            add_generation_prompt (bool): Whether to add generation prompt.
-            num_proc (int): Number of processes to use for parallel processing.
         """
         output_path = Path(self.args.output_path)
         # Ensure the parent directory exists.
@@ -331,7 +314,7 @@ class DatasetProcessor:
 
 def parse_arguments() -> argparse.Namespace:
     """
-    Parse command line arguments.
+    Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
         description=
@@ -346,15 +329,15 @@ def parse_arguments() -> argparse.Namespace:
         help=
         'Path to the local dataset file (.json, .jsonl) or Hugging Face dataset name.'
     )
+    parser.add_argument('--output_path',
+                        type=str,
+                        required=True,
+                        help='Path to save the processed .jsonl output file.')
     parser.add_argument(
         '--model_name_or_path',
         type=str,
         required=True,
         help='Hugging Face model name or path, used to load the tokenizer.')
-    parser.add_argument('--output_path',
-                        type=str,
-                        required=True,
-                        help='Path to save the processed .jsonl output file.')
 
     # Optional Arguments
     parser.add_argument(
@@ -363,6 +346,13 @@ def parse_arguments() -> argparse.Namespace:
         default='prompt',
         help=
         'Key in the dataset for the input text (e.g., "prompt" or "Problem").')
+    parser.add_argument(
+        '--response_key',
+        type=str,
+        default='response',
+        help=
+        'Key in the dataset for the response text (e.g., "response" or "Response").'
+    )
     parser.add_argument(
         '--label_key',
         type=str,
@@ -383,25 +373,28 @@ def parse_arguments() -> argparse.Namespace:
         help=
         'Use the Qwen math Chain-of-Thought prompt. Overrides --system_prompt_type.'
     )
+    parser.add_argument('--add_generation_prompt',
+                        action='store_true',
+                        help='Add a generation prompt to the response.')
     parser.add_argument('--apply_chat_template_method',
                         type=str,
                         choices=['tokenizer', 'formatted'],
                         default='formatted',
                         help='Method to use for applying chat template.')
     parser.add_argument(
-        '--run_example',
-        action='store_true',
+        '--num_proc',
+        type=int,
+        default=4,
         help=
-        'Run only the chat template example without processing the dataset.')
+        'Number of processes to use for parallel processing of the dataset.')
 
     args = parser.parse_args()
-
     return args
 
 
 def main() -> None:
     """
-    Main execution function.
+    Main execution function, parses arguments and runs the DatasetProcessor.
     """
 
     args = parse_arguments()
