@@ -294,12 +294,13 @@ class DatasetProcessor:
         # This is the cleanest way to pass additional arguments to the map function.
         processing_fn = self.preprocess_data_entry
 
-        # Determine columns to remove (original keys)
-        keep_columns = [
-            self.args.input_key, self.args.response_key, self.args.label_key
-        ]
+        # Explicitly specify which columns to keep (the new column names created in preprocessing)
+        # All other columns will be removed
+        new_column_names = ['question', 'response', 'ground_truth']
+
+        # Columns to remove are those present in original dataset but not in our new column names
         columns_to_remove: List[str] = [
-            col for col in dataset.column_names if col not in keep_columns
+            col for col in dataset.column_names if col not in new_column_names
         ]
 
         # Use multiprocessing to speed up processing
