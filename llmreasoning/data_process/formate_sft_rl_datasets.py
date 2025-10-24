@@ -12,10 +12,9 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# === Constants and Configuration ===
+# --- Constants and Configuration ---
 # System prompts used for formatting conversations in a chat-based format.
 # These prompts are model-specific and guide the model's behavior.
-# Defaults (used only if CLI values are not provided)
 amthinking_system_prompt: Final[str] = (
     "You are a helpful assistant. To answer the user's question, you first think "
     'about the reasoning process and then provide the user with the answer. '
@@ -189,125 +188,150 @@ def load_custom_dataset(data_path: str) -> Dataset:
     return dataset
 
 
-def preprocess_data(
-    data: Dict[str, Any],
-    tokenizer: PreTrainedTokenizerBase,
-    input_key: str = 'input',
-    label_key: Optional[str] = None,
-    system_prompt: Optional[str] = None,
-    qwen_math_cot: Optional[str] = None,
-    apply_chat_template_method: str = 'formatted',
-    add_generation_prompt: bool = False,
-) -> Dict[str, str]:
+# --- DatasetProcessor Class ---
+
+
+class DatasetProcessor:
     """
-    Preprocess a single data entry, applying chat templates or custom prompts.
-
-    Args:
-        data (Dict[str, Any]): A dictionary representing a single example from the dataset.
-        tokenizer (PreTrainedTokenizerBase): The tokenizer object, required for `apply_chat_template`.
-        input_key (str): The key to retrieve the input text (e.g., 'Problem' or 'prompt').
-        label_key (Optional[str]): The key to retrieve the label/answer text (e.g., 'Answer').
-        system_prompt (Optional[str]): Optional system prompt for chat-based formatting.
-        qwen_math_cot (Optional[str]): Optional CoT prompt to append to the user's input.
-        apply_chat_template_method (str): Method to use for applying chat template.
-        add_generation_prompt (bool): Whether to add generation prompt.
-
-    Returns:
-        Dict[str, str]: A dictionary with two keys:
-                        - 'problem': The formatted prompt text.
-                        - 'answer': The raw label/answer text.
+    A class to handle the end-to-end processing of a dataset:
+    loading, applying chat templates, and saving the formatted data.
     """
-    user_prompt: str = str(data.get(input_key, ''))
-    response: str = str(data.get(label_key, '')) if label_key else ''
 
-    # Create the chat history list.
-    question, response = apply_chat_template(
-        tokenizer=tokenizer,
-        question=user_prompt,
-        response=response,
-        system_prompt=system_prompt,
-        math_cot_prompt=qwen_math_cot,
-        apply_chat_template_method=apply_chat_template_method,
-        add_generation_prompt=add_generation_prompt,
-    )
-    return {'problem': question, 'answer': response}
+    def __init__(self, args: argparse.Namespace):
+        """
+        Initializes the processor with arguments from the command line.
+        """
+        self.args = args
+        self.tokenizer: Optional[
+            PreTrainedTokenizerBase] = self.load_tokenizer()
+
+        # Determine prompts based on arguments
+        self.system_prompt: Optional[str] = SYSTEM_PROMPT_FACTORY.get(
+            args.system_prompt_type, None)
+        self.qwen_math_cot: Optional[
+            str] = qwen_math_cot_prompt if args.use_qwen_math_cot else None
+
+    def load_tokenizer(self) -> bool:
+        """
+        Loads the tokenizer from the specified model path.
+        Returns True on success, False otherwise.
+        """
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.args.model_name_or_path)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+            logger.info(
+                f'✅ Tokenizer loaded successfully from {self.args.model_name_or_path}'
+            )
+            return True
+        except Exception as e:
+            logger.error(
+                f"❌ Error loading tokenizer from '{self.args.model_name_or_path}': {e}"
+            )
+            return False
+
+    def preprocess_data_entry(
+        self,
+        example: Dict[str, Any],
+    ) -> Dict[str, str]:
+        """
+        Preprocess a single data entry, applying chat templates or custom prompts.
+
+        Args:
+            example (Dict[str, Any]): A dictionary representing a single example from the dataset.
+
+        Returns:
+            Dict[str, str]: A dictionary with two keys:
+                            - 'problem': The formatted prompt text.
+                            - 'answer': The raw label/answer text.
+        """
+        if not self.tokenizer:
+            raise RuntimeError('Tokenizer is not loaded.')
+
+        question: str = example.get(self.args.input_key, '')
+        gen_response: str = example.get(self.args.response_key, '')
+        ground_truth: str = example.get(self.args.label_key, '')
+
+        # Create the chat history list.
+        question, gen_response = apply_chat_template(
+            tokenizer=self.tokenizer,
+            question=question,
+            response=gen_response,
+            system_prompt=self.system_prompt,
+            math_cot_prompt=self.qwen_math_cot,
+            apply_chat_template_method=self.args.apply_chat_template_method,
+            add_generation_prompt=self.args.add_generation_prompt,
+        )
+        return {
+            'question': question,
+            'gen_response': gen_response,
+            'ground_truth': ground_truth
+        }
+
+    def process_and_save_dataset(
+        self,
+        dataset: Dataset,
+    ) -> None:
+        """
+        Process an entire dataset and save the results to a JSONL file.
+
+        Each example is preprocessed and written as a single line JSON object
+        (JSONL format), making it easy to load for model training.
+
+        Args:
+            dataset (Dataset): The Hugging Face Dataset object to process.
+            tokenizer (PreTrainedTokenizerBase): The tokenizer used for formatting.
+            output_path (str): The path to the output .jsonl file.
+            input_key (str): The key to access the input text in the dataset.
+            label_key (str): The key to access the labels/answers in the dataset.
+            system_prompt (Optional[str]): Optional system prompt to pass to `preprocess_data`.
+            qwen_math_cot (Optional[str]): Optional Chain-of-Thought prompt to pass to `preprocess_data`.
+            apply_chat_template_method (str): Method to use for applying chat template.
+            add_generation_prompt (bool): Whether to add generation prompt.
+            num_proc (int): Number of processes to use for parallel processing.
+        """
+        output_path = Path(self.args.output_path)
+        # Ensure the parent directory exists.
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Use functools.partial to wrap the preprocessing function with its arguments
+        # This is the cleanest way to pass additional arguments to the map function.
+        processing_fn = self.preprocess_data_entry
+
+        # Determine columns to remove (original keys)
+        keep_columns = [
+            self.args.input_key, self.args.response_key, self.args.label_key
+        ]
+        columns_to_remove: List[str] = [
+            col for col in dataset.column_names if col not in keep_columns
+        ]
+
+        # Use multiprocessing to speed up processing
+        logger.info(
+            f'🚀 Starting multi-process data processing with {self.args.num_proc} cores...'
+        )
+        # Use multiprocessing to speed up processing
+        processed_dataset = dataset.map(
+            processing_fn,
+            num_proc=self.args.num_proc,
+            remove_columns=columns_to_remove,  # Remove original columns
+        )
+
+        # Save as JSONL file
+        processed_dataset.to_json(
+            output_path,
+            orient='records',
+            lines=True,
+            force_ascii=False,
+        )
+        logger.info('🎉 Finished processing all examples.')
+        logger.info(f'💾 Dataset saved to {output_path}')
 
 
-def process_and_save_dataset(
-    dataset: Dataset,
-    tokenizer: PreTrainedTokenizerBase,
-    output_path: str,
-    input_key: str = 'Problem',
-    label_key: str = 'Answer',
-    system_prompt: Optional[str] = None,
-    qwen_math_cot: Optional[str] = None,
-    apply_chat_template_method: str = 'formatted',
-    add_generation_prompt: bool = False,
-    num_proc: int = 4,
-) -> None:
+def parse_arguments() -> argparse.Namespace:
     """
-    Process an entire dataset and save the results to a JSONL file.
-
-    Each example is preprocessed and written as a single line JSON object
-    (JSONL format), making it easy to load for model training.
-
-    Args:
-        dataset (Dataset): The Hugging Face Dataset object to process.
-        tokenizer (PreTrainedTokenizerBase): The tokenizer used for formatting.
-        output_path (str): The path to the output .jsonl file.
-        input_key (str): The key to access the input text in the dataset.
-        label_key (str): The key to access the labels/answers in the dataset.
-        system_prompt (Optional[str]): Optional system prompt to pass to `preprocess_data`.
-        qwen_math_cot (Optional[str]): Optional Chain-of-Thought prompt to pass to `preprocess_data`.
-        apply_chat_template_method (str): Method to use for applying chat template.
-        add_generation_prompt (bool): Whether to add generation prompt.
-        num_proc (int): Number of processes to use for parallel processing.
-    """
-    output_file = Path(output_path)
-    # Ensure the parent directory exists.
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Use functools.partial to wrap the preprocessing function with its arguments
-    # This is the cleanest way to pass additional arguments to the map function.
-    processing_fn = partial(
-        preprocess_data,
-        tokenizer=tokenizer,
-        input_key=input_key,
-        label_key=label_key,
-        system_prompt=system_prompt,
-        qwen_math_cot=qwen_math_cot,
-        apply_chat_template_method=apply_chat_template_method,
-        add_generation_prompt=add_generation_prompt,
-    )
-    # Determine columns to remove (original keys)
-    columns_to_remove = [input_key]
-    if label_key and label_key in dataset.column_names:
-        columns_to_remove.append(label_key)
-        dataset = dataset.remove_columns(columns_to_remove)
-
-    # Use multiprocessing to speed up processing
-    logger.info(
-        f'🚀 Starting multi-process data processing with {num_proc} cores...')
-    processed_dataset = dataset.map(
-        processing_fn,
-        num_proc=num_proc,
-        remove_columns=columns_to_remove,  # Remove original columns
-    )
-
-    # Save as JSONL file
-    processed_dataset.to_json(
-        output_path,
-        orient='records',
-        lines=True,
-        force_ascii=False,
-    )
-    logger.info('🎉 Finished processing all examples.')
-    logger.info(f'💾 Dataset saved to {output_file}')
-
-
-def main() -> None:
-    """
-    Main execution function.
+    Parse command line arguments.
     """
     parser = argparse.ArgumentParser(
         description=
@@ -372,33 +396,20 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Determine which prompt to use based on args
-    system_prompt = SYSTEM_PROMPT_FACTORY.get(args.system_prompt_type, None)
-    qwen_math_cot = qwen_math_cot_prompt if args.use_qwen_math_cot else None
+    return args
 
-    # === Load Resources ===
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-    except Exception as e:
-        logger.error(
-            f"Error loading tokenizer from '{args.model_name_or_path}': {e}")
-        return
+
+def main() -> None:
+    """
+    Main execution function.
+    """
+
+    args = parse_arguments()
+    processor = DatasetProcessor(args)
 
     # === Run Main Processing Logic ===
     dataset = load_custom_dataset(args.data_path)
-    process_and_save_dataset(
-        dataset=dataset,
-        tokenizer=tokenizer,
-        output_path=args.output_path,
-        input_key=args.input_key,
-        label_key=args.label_key,
-        qwen_math_cot=qwen_math_cot,
-        system_prompt=system_prompt,
-        apply_chat_template_method=args.apply_chat_template_method,
-        add_generation_prompt=False,
-    )
+    processor.process_and_save_dataset(dataset)
 
 
 if __name__ == '__main__':
