@@ -2,14 +2,15 @@ import argparse
 import logging
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Final, List, Optional
+from typing import Any, Dict, Final, List, Optional, Tuple
 
 # Third-party library imports
 from datasets import Dataset, load_dataset
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Constants and Configuration ---
@@ -69,7 +70,7 @@ def apply_chat_template(
     math_cot_prompt: Optional[str] = None,
     apply_chat_template_method: str = 'tokenizer',
     add_generation_prompt: bool = False,
-) -> tuple[str, str]:
+) -> Tuple[str, str]:
     """
     Applies the chat template to format the prompt and response for SFT.
 
@@ -203,6 +204,15 @@ class DatasetProcessor:
         self.qwen_math_cot: Optional[
             str] = qwen_math_cot_prompt if args.use_qwen_math_cot else None
 
+        # Validation for chat template method
+        if self.args.apply_chat_template_method not in [
+                'tokenizer', 'formatted'
+        ]:
+            logger.warning(
+                f"Invalid chat template method '{self.args.apply_chat_template_method}' detected. Falling back to 'formatted'."
+            )
+            self.args.apply_chat_template_method = 'formatted'
+
     def load_tokenizer(self) -> bool:
         """
         Loads the tokenizer from the specified model path.
@@ -244,9 +254,11 @@ class DatasetProcessor:
         question: str = example.get(self.args.input_key, '')
         gen_response: str = example.get(self.args.response_key, '')
         ground_truth: str = example.get(self.args.label_key, '')
+        if isinstance(gen_response, list):
+            gen_response = gen_response[0] if gen_response else ''
 
         # Create the chat history list.
-        question, gen_response = apply_chat_template(
+        formatted_prompt, formatted_response = apply_chat_template(
             tokenizer=self.tokenizer,
             question=question,
             response=gen_response,
@@ -256,8 +268,8 @@ class DatasetProcessor:
             add_generation_prompt=self.args.add_generation_prompt,
         )
         return {
-            'question': question,
-            'gen_response': gen_response,
+            'question': formatted_prompt,
+            'response': formatted_response,
             'ground_truth': ground_truth
         }
 
@@ -384,7 +396,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         '--num_proc',
         type=int,
-        default=4,
+        default=16,
         help=
         'Number of processes to use for parallel processing of the dataset.')
 
