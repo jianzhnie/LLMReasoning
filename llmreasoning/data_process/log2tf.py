@@ -112,7 +112,12 @@ def register_new_log_format(stage: str, pattern: re.Pattern,
     TRAINING_LOG_CONFIGS[stage] = {'pattern': pattern, 'fields': fields}
 
 
-def process_log_file(log_path: str, log_dir: str, stage: str = 'sft') -> None:
+def process_log_file(log_path: str,
+                     log_dir: str,
+                     stage: str = 'sft',
+                     flush_secs: int = 10,
+                     tag_prefix: str = 'train/',
+                     max_lines: int = 0) -> None:
     """
     Read a log file line by line and write matched metrics to TensorBoard logs.
 
@@ -120,6 +125,9 @@ def process_log_file(log_path: str, log_dir: str, stage: str = 'sft') -> None:
         log_path (str): Path to the input log file.
         log_dir (str): Directory to save TensorBoard logs.
         stage (str): Training stage type ('sft' or 'dpo').
+        flush_secs (int): How often to flush TensorBoard events (seconds).
+        tag_prefix (str): Prefix for TensorBoard scalar tags.
+        max_lines (int): Optional limit on the number of log lines to process (0 = no limit).
     """
     if not os.path.exists(log_path):
         raise FileNotFoundError(f'Log file not found at: {log_path}')
@@ -127,7 +135,7 @@ def process_log_file(log_path: str, log_dir: str, stage: str = 'sft') -> None:
     os.makedirs(log_dir, exist_ok=True)
     print(f'Starting to process log file: {log_path}')
 
-    with SummaryWriter(log_dir=log_dir) as writer:
+    with SummaryWriter(log_dir=log_dir, flush_secs=flush_secs) as writer:
         with open(log_path, 'r', encoding='utf-8') as f:
             for line_number, line in enumerate(f, 1):
                 iteration, metrics = extract_metrics_from_specific_log(
@@ -139,8 +147,10 @@ def process_log_file(log_path: str, log_dir: str, stage: str = 'sft') -> None:
                 for key, value in metrics.items():
                     # Sanitize key to be a valid TensorBoard tag
                     sanitized_key = key.replace(' ', '_').replace('/', '_')
-                    tensorboard_tag = f'train/{sanitized_key}'
+                    tensorboard_tag = f'{tag_prefix}{sanitized_key}'
                     writer.add_scalar(tensorboard_tag, value, iteration)
+                if max_lines > 0 and line_number >= max_lines:
+                    break
 
     print(f'✅ TensorBoard logs successfully written to: {log_dir}')
     print('\nTo view the logs, run this command in your terminal:')
@@ -166,11 +176,27 @@ def main():
                         default='sft',
                         choices=['sft', 'dpo'],
                         help='Training stage type (default: sft).')
+    parser.add_argument(
+        '--flush-secs',
+        type=int,
+        default=10,
+        help='How often to flush TensorBoard events (seconds).')
+    parser.add_argument('--tag-prefix',
+                        type=str,
+                        default='train/',
+                        help='Prefix for TensorBoard scalar tags.')
+    parser.add_argument(
+        '--max-lines',
+        type=int,
+        default=0,
+        help=
+        'Optional limit on the number of log lines to process (0 = no limit).')
 
     args = parser.parse_args()
 
     try:
-        process_log_file(args.log_path, args.save_log_dir, args.stage)
+        process_log_file(args.log_path, args.save_log_dir, args.stage,
+                         args.flush_secs, args.tag_prefix, args.max_lines)
     except FileNotFoundError as fnfe:
         print(f'❌ Error: {fnfe}')
         print('Please ensure the log file path is correct and accessible.')
