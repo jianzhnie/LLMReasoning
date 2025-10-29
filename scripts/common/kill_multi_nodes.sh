@@ -45,7 +45,7 @@ KEYWORDS=("llmtuner" "llm_workspace" "mindspeed" "ray" "vllm" "python")
 KILL_TIMEOUT=3
 
 # SSH 超时时间（秒），防止 SSH 卡死
-SSH_TIMEOUT=10
+SSH_TIMEOUT=3
 
 # --- 辅助函数 ---
 # 日志时间戳函数，用于打印带时间戳的日志信息
@@ -122,7 +122,7 @@ kill_processes_on_node() {
         fi
     "
     # 使用 SSH 执行远程命令，带有超时控制
-    # 使用 [timeout](file:///Users/jianzhengnie/work_dir/chatgpt/openai-python/src/openai/__init__.py#L129-L129) 外部命令来确保整个 SSH 会话不会永久挂起
+    # 使用 `timeout` 外部命令来确保整个 SSH 会话不会永久挂起
     if timeout $SSH_TIMEOUT ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes "$node" "$remote_cmd"; then
         log "✅ Successfully processed node: $node"
     else
