@@ -178,5 +178,5 @@ data/
 a.py
 work_dir/
 *.json
-scripts/
 *.txt
+a.sh
