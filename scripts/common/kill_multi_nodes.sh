@@ -82,7 +82,7 @@ kill_processes_on_node() {
     local remote_cmd="
         # 查找所有匹配关键字的进程 ID，并排除 VS Code 相关的进程
         # 'grep -v' 用于排除指定的关键词
-        pids=\$(ps aux | grep -E '$pattern' | grep -v 'grep -E' | grep -v 'vscode-server' | grep -v 'extension' | grep -v 'agent' | awk '{print \\\$2}')
+        pids=\$(ps aux | grep -E '$pattern' | grep -v 'grep -E' | grep -v 'vscode-server' | grep -v 'extension' | grep -v 'agent' | awk '{print \$2}')
 
         if [ -n \"\$pids\" ]; then
             echo \"Found PIDs: \$pids matching '$pattern'.\"
@@ -122,7 +122,7 @@ kill_processes_on_node() {
         fi
     "
     # 使用 SSH 执行远程命令，带有超时控制
-    # 使用 `timeout` 外部命令来确保整个 SSH 会话不会永久挂起
+    # 使用 timeout 外部命令来确保整个 SSH 会话不会永久挂起
     if timeout $SSH_TIMEOUT ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes "$node" "$remote_cmd"; then
         log "✅ Successfully processed node: $node"
     else
