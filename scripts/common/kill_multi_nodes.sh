@@ -31,6 +31,7 @@ NODE_LIST_FILE=""
 if [ "$#" -eq 1 ]; then
     NODE_LIST_FILE="$1"
 else
+    # 默认节点列表文件路径
     NODE_LIST_FILE="/home/jianzhnie/llmtuner/tools/nodes/node_list_all.txt"
 fi
 
@@ -39,11 +40,9 @@ MAX_JOBS=16
 
 # 定义要 kill 的关键词（支持正则）
 KEYWORDS=("llmtuner" "llm_workspace" "mindspeed" "ray" "vllm" "python")
-
 # 终止进程的超时时间（秒），用于 SIGTERM。
 # 在此时间后，如果进程未退出，将执行 SIGKILL 强制终止
 KILL_TIMEOUT=3
-
 # SSH 超时时间（秒），防止 SSH 卡死
 SSH_TIMEOUT=3
 
@@ -73,7 +72,7 @@ fi
 # ---
 kill_processes_on_node() {
     local node=$1
-    log "🔎 Processing node: $node"
+    log "🔎 [Node: $node] Starting process check."
 
     # 构建正则表达式，用于在进程列表中匹配
     local pattern=$(IFS='|'; echo "${KEYWORDS[*]}")
