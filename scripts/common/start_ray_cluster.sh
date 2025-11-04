@@ -14,7 +14,7 @@ DEFAULT_PROJECT_DIR="/home/jianzhnie/llmtuner/llm/verl"
 DEFAULT_MASTER_PORT="6379"         # Ray head node 默认端口
 DEFAULT_DASHBOARD_PORT="8266"      # Ray 仪表盘默认端口
 DEFAULT_NPUS_PER_NODE=8            # 每个节点的 NPU 数量
-DEFAULT_WAIT_TIME=10               # 等待头节点初始化的时间 (秒)
+DEFAULT_WAIT_TIME=3               # 等待头节点初始化的时间 (秒)
 
 # 颜色输出定义
 RED='\033[0;31m'
@@ -196,6 +196,10 @@ log_info "Waiting ${WAIT_TIME}s for head node to initialize..."
 sleep $WAIT_TIME
 
 # 并行启动工作节点
+success_count=1  # Head node is running
+failed_count=0
+failed_nodes=()
+
 if [ ${#WORKERS[@]} -gt 0 ]; then
     log_info "Starting ${#WORKERS[@]} worker nodes in parallel..."
     pids=()
@@ -209,9 +213,6 @@ if [ ${#WORKERS[@]} -gt 0 ]; then
     done
 
     # 等待所有工作节点启动完成
-    success_count=0
-    failed_nodes=()
-
     for i in "${!pids[@]}"; do
         pid=${pids[$i]}
         node=${node_names[$i]}
@@ -221,14 +222,11 @@ if [ ${#WORKERS[@]} -gt 0 ]; then
         else
             log_error "Worker node $node failed to connect."
             failed_nodes+=("$node")
+            ((failed_count++))
         fi
     done
-
-    failed_count=${#failed_nodes[@]}
 else
     log_info "No worker nodes defined. Starting single-node cluster."
-    success_count=1 # Head node is running
-    failed_count=0
 fi
 
 # --- 7. 最终报告 ---
@@ -248,4 +246,6 @@ echo -e "${BLUE}=============================================${NC}"
 
 # --- 8. 可选：显示 Ray 状态 ---
 log_info "Displaying Ray status..."
-remote_exec "$MASTER_ADDR" "ray status"
+if ! remote_exec "$MASTER_ADDR" "ray status"; then
+    log_warn "Failed to retrieve Ray status. Cluster may still be initializing."
+fi
