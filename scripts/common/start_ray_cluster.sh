@@ -99,13 +99,16 @@ start_ray_node() {
     # 停止旧进程
     stop_ray_node "$node"
 
+    # 正确转义JSON资源参数
+    local resources_json="{\\\"NPU\\\": $NPUS_PER_NODE}"
+
     if $is_head; then
         log_info "[HEAD] Starting Ray head on $node (Master: $MASTER_ADDR:$MASTER_PORT)..."
         # --dashboard-host=0.0.0.0 允许外部访问仪表盘
-        cmd="ray start --head --port $MASTER_PORT --node-ip-address $MASTER_ADDR --dashboard-host=0.0.0.0 --dashboard-port=$DASHBOARD_PORT --resources='{\"NPU\": $NPUS_PER_NODE}'"
+        cmd="ray start --head --port $MASTER_PORT --node-ip-address $MASTER_ADDR --dashboard-host=0.0.0.0 --dashboard-port=$DASHBOARD_PORT --resources=\"$resources_json\""
     else
         log_info "[WORKER] Starting Ray worker on $node (Connecting to: $MASTER_ADDR:$MASTER_PORT)..."
-        cmd="ray start --address $MASTER_ADDR:$MASTER_PORT --resources='{\"NPU\": $NPUS_PER_NODE}'"
+        cmd="ray start --address $MASTER_ADDR:$MASTER_PORT --resources=\"$resources_json\""
     fi
 
     if ! remote_exec "$node" "$cmd"; then
@@ -199,8 +202,8 @@ if [ ${#WORKERS[@]} -gt 0 ]; then
     node_names=()
 
     for worker in "${WORKERS[@]}"; do
-        # 在子 shell 中执行启动函数，以便捕获 PID
-        ( start_ray_node "$worker" false ) &
+        # 在后台启动工作节点
+        start_ray_node "$worker" false &
         pids+=($!)
         node_names+=("$worker")
     done
