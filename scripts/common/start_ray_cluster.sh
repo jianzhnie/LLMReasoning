@@ -245,7 +245,11 @@ log_info "Total nodes: $NUM_NODES ($success_count workers running)"
 echo -e "${BLUE}=============================================${NC}"
 
 # --- 8. 可选：显示 Ray 状态 ---
+echo ""
+echo ""
+echo -e "${BLUE}=============================================${NC}"
 log_info "Displaying Ray status..."
 if ! remote_exec "$MASTER_ADDR" "ray status"; then
     log_warn "Failed to retrieve Ray status. Cluster may still be initializing."
 fi
+echo -e "${BLUE}=============================================${NC}"
