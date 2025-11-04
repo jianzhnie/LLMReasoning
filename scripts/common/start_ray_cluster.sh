@@ -9,7 +9,6 @@
 
 set -euo pipefail  # 严格模式：遇到错误退出，未定义变量报错，管道错误退出
 
-
 # --- 1. 默认配置与常量 ---
 DEFAULT_PROJECT_DIR="/home/jianzhnie/llmtuner/llm/verl"
 DEFAULT_MASTER_PORT="6379"         # Ray head node 默认端口
@@ -95,25 +94,24 @@ stop_ray_node() {
     remote_exec "$node" "ray stop -f >/dev/null 2>&1 || true"
 }
 
-
-# 启动Ray节点函数
+# 启动 Ray 节点函数
 start_ray_node() {
     local node=$1
     local is_head=$2
     local cmd
 
+    # 停止旧进程
+    stop_ray_node "$node"
+
     if $is_head; then
-        log_info "[HEAD] Starting Ray head node on $node..."
+        log_info "[HEAD] Starting Ray head on $node (Master: $MASTER_ADDR:$MASTER_PORT)..."
+        # --dashboard-host=0.0.0.0 允许外部访问仪表盘
         cmd="ray start --head --port $MASTER_PORT --node-ip-address $MASTER_ADDR --dashboard-host=0.0.0.0 --dashboard-port=$DASHBOARD_PORT --resources='{\"NPU\": $NPUS_PER_NODE}'"
     else
-        log_info "[WORKER] Starting Ray worker node on $node..."
+        log_info "[WORKER] Starting Ray worker on $node (Connecting to: $MASTER_ADDR:$MASTER_PORT)..."
         cmd="ray start --address $MASTER_ADDR:$MASTER_PORT --resources='{\"NPU\": $NPUS_PER_NODE}'"
     fi
 
-    # 先停止可能存在的Ray进程
-    stop_ray_node "$node"
-
-    # 启动新Ray进程
     if ! remote_exec "$node" "$cmd"; then
         log_error "Failed to start Ray on node $node"
         return 1
@@ -121,14 +119,12 @@ start_ray_node() {
     return 0
 }
 
-
 # --- 5. 预检与节点列表处理 ---
 
 # 检查必需参数和文件
 if [[ -z "$NODE_LIST_FILE" ]]; then
     log_error "Node list file is required."
 fi
-
 
 # 检查节点文件是否存在
 if [ ! -f "$NODE_LIST_FILE" ]; then
@@ -143,27 +139,23 @@ if [ ${#NODE_HOSTS[@]} -eq 0 ]; then
     log_error "Node list '$NODE_LIST_FILE' is empty or contains no valid hosts."
 fi
 
-
 # 定义集群角色
 MASTER_ADDR=${NODE_HOSTS[0]}
 NUM_NODES=${#NODE_HOSTS[@]}
 WORKERS=("${NODE_HOSTS[@]:1}")  # 除第一个节点外的所有节点作为 worker
 
-
 # 打印集群信息
 log_info "============================================="
 log_info "Ray Cluster Setup Configuration"
 log_info "============================================="
-log_info "Number of nodes: $NUM_NODES"
+log_info "Total nodes: $NUM_NODES"
 log_info "NPUs per node: $NPUS_PER_NODE"
-log_info "Master IP: $MASTER_ADDR"
+log_info "Master IP: ${BLUE}$MASTER_ADDR${NC}"
 log_info "Master port: $MASTER_PORT"
 log_info "Dashboard port: $DASHBOARD_PORT"
 log_info "Project directory: $PROJECT_DIR"
-log_info "Wait time: ${WAIT_TIME}s"
 log_info "Worker nodes (${#WORKERS[@]}): ${WORKERS[*]:-None}"
 log_info "============================================="
-
 
 # 验证所有节点的 SSH 连接和项目目录
 log_info "Verifying SSH connections and project directories on all nodes..."
@@ -179,7 +171,6 @@ for node in "${NODE_HOSTS[@]}"; do
 done
 log_info "All pre-checks passed."
 
-
 # --- 6. 启动流程 ---
 # 启动头节点
 if ! start_ray_node "$MASTER_ADDR" true; then
@@ -187,7 +178,7 @@ if ! start_ray_node "$MASTER_ADDR" true; then
 fi
 
 # 等待头节点完全启动
-log_info "Waiting $WAIT_TIME seconds for head node to initialize..."
+log_info "Waiting ${WAIT_TIME}s for head node to initialize..."
 sleep $WAIT_TIME
 
 # 并行启动工作节点
