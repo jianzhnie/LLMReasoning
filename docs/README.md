@@ -10,6 +10,12 @@
 
 [RL Reasoning 数据集生成脚本多进程版本](docs/reasoning_data_process.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/data_process/rl_data_process_faster.py)
 
+
+## Verl 帮助函数
+
+[自定义 Verl 数据集预处理器文档](docs/custom_verl_data-process.md) | [Script](llmreasoning/verl_utils/custom_dataset.py)
+
+
 ## 分布式训练
 
 [多机多卡分布式通信测试脚本](docs/multi_node_hccl_test.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/llmreasoning/llmtoolkit/scale-training/launch_multi_nodes.sh)
