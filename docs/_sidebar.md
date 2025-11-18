@@ -5,6 +5,10 @@
   - [VLLM 数学采样推理数据后处理](docs/vllm_reasoning_data_process.md)
   - [RL Reasoning 数据集生成脚本多进程版本](docs/reasoning_data_process.md)
 
+- Verl 帮助函数
+
+  - [自定义 Verl 数据集预处理器文档](docs/custom_verl_data-process.md) | [Script](llmreasoning/verl_utils/custom_dataset.py)
+
 - 分布式训练
   - [多机多卡分布式通信测试脚本](docs/multi_node_hccl_test.md)
   - [多机多卡分布式进程Kill脚本](docs/kill_multi_nodes.md)
