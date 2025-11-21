@@ -27,32 +27,14 @@ QWEN_MATH_COT_PROMPT: Final[str] = (
     'Please reason step by step, and put your final answer within \\boxed{}.')
 
 
-def extract_question_robust(content: str) -> str:
-    """
-    Robustly extract question from content assuming structure: [Prompt]\\n\\n[Question]\\n\\n[Suffix].
-
-    Args:
-        content: Raw content string containing the question
-
-    Returns:
-        Cleaned question content
-    """
-    # Assume structure is: [Prompt] \n\n [Question] \n\n [Suffix]
-    parts = content.split('\n\n')
-    # Usually Question is middle part, or everything except first and last parts
-    # If data is very regular, parts[1] is typically the Question
-    if len(parts) >= 3:
-        # Reassemble middle parts to prevent Question being split by internal \n\n
-        clean_content = '\n\n'.join(parts[1:-1]).strip()
-    else:
-        # Fallback: if splitting fails, keep as is or apply other processing
-        clean_content = content
-    return clean_content
-
-
 def extract_question(content: str) -> str:
     """
-    Clean a single data record, extracting pure math question.
+    Extract clean question from content using multiple strategies for robustness.
+
+    This function tries multiple approaches in order:
+    1. First attempts precise prefix/suffix removal for structured data
+    2. Falls back to robust splitting approach for less structured data
+    3. Returns original content if both methods fail
 
     Args:
         content: Raw content string containing the question
@@ -60,26 +42,46 @@ def extract_question(content: str) -> str:
     Returns:
         Cleaned question content
     """
-    # Define fixed prompts to remove
+    if not isinstance(content, str):
+        return str(content) if content is not None else ''
+
+    # Try precise extraction first (for structured data with known prefixes/suffixes)
     prefix = (
         'Solve the following math problem step by step. '
         'The last line of your response should be of the form Answer: $Answer (without quotes) '
         'where $Answer is the answer to the problem.\n\n')
     suffix = '\n\nRemember to put your answer on its own line after "Answer:".'
 
+    # Check if content has the expected structure
+    if content.startswith(prefix) and content.endswith(suffix):
+        try:
+            # Remove precise prefixes and suffixes
+            clean_content = content[len(prefix):-len(suffix)].strip()
+            if clean_content:  # Only return if we got non-empty result
+                return clean_content
+        except (IndexError, ValueError) as e:
+            # Continue to fallback method if precise extraction fails
+            pass
+
+    # Fallback to robust splitting approach
     try:
-        # Perform replacement operations
-        # Using replace to remove prefixes/suffixes, and strip() to remove residual whitespace
-        clean_content = content.replace(prefix, '').replace(suffix, '').strip()
-    except (KeyError, IndexError, AttributeError) as e:
-        # Prevent program interruption due to data format anomalies
-        print(f'Error processing record: {e}')
-        clean_content = content
+        parts = content.split('\n\n')
+        # For well-structured content with [Prompt]\n\n[Question]\n\n[Suffix] format
+        if len(parts) >= 3:
+            # Reassemble middle parts to prevent Question being split by internal \n\n
+            clean_content = '\n\n'.join(parts[1:-1]).strip()
+            if clean_content:  # Only return if we got non-empty result
+                return clean_content
+    except (AttributeError, TypeError) as e:
+        # Handle cases where content is not a string
+        pass
 
-    return clean_content
+    # Ultimate fallback - return original content stripped
+    return content.strip()
 
 
-def dapo_process_fn(example: Dict[str, Any], idx: int) -> Dict[str, Any]:
+def dapo_process_fn(example: Dict[str, Any],
+                    data_source: str) -> Dict[str, Any]:
     """
     Process DAPO dataset examples.
 
@@ -99,7 +101,7 @@ def dapo_process_fn(example: Dict[str, Any], idx: int) -> Dict[str, Any]:
 
     return {
         'data_source':
-        example['data_source'],
+        data_source,
         'prompt': [{
             'role': 'system',
             'content': OPENR1_SYSTEM_PROMPT
@@ -244,7 +246,7 @@ def main() -> None:
     print('Processing dataset...', flush=True)
 
     # Process the dataset and remove original columns
-    if args.dataset_name == 'dapo':
+    if args.dataset_name == 'dapo-math-17k':
         processed_dataset = raw_dataset.map(
             function=dapo_process_fn,
             with_indices=True,
