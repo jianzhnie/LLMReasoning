@@ -10,7 +10,7 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Final, Union
+from typing import Any, Callable, Dict, Final, Union
 
 import datasets
 
@@ -59,7 +59,7 @@ def extract_question(content: str) -> str:
             clean_content = content[len(prefix):-len(suffix)].strip()
             if clean_content:  # Only return if we got non-empty result
                 return clean_content
-        except (IndexError, ValueError) as e:
+        except (IndexError, ValueError):
             # Continue to fallback method if precise extraction fails
             pass
 
@@ -72,7 +72,7 @@ def extract_question(content: str) -> str:
             clean_content = '\n\n'.join(parts[1:-1]).strip()
             if clean_content:  # Only return if we got non-empty result
                 return clean_content
-    except (AttributeError, TypeError) as e:
+    except (AttributeError, TypeError):
         # Handle cases where content is not a string
         pass
 
@@ -87,7 +87,7 @@ def dapo_process_fn(example: Dict[str, Any],
 
     Args:
         example: A single dataset example
-        idx: Index of the example
+        data_source: Name of the data source
 
     Returns:
         Processed example with standardized structure
@@ -183,7 +183,7 @@ def load_dataset_from_path(dataset_path: str) -> datasets.Dataset:
         else:
             return datasets.load_dataset(dataset_path, split='train')
     except Exception as e:
-        raise RuntimeError(f'Failed to load dataset: {e}')
+        raise RuntimeError(f'Failed to load dataset: {e}') from e
 
 
 def save_example(data: Dict[str, Any], filepath: Union[str, Path]) -> None:
@@ -194,8 +194,47 @@ def save_example(data: Dict[str, Any], filepath: Union[str, Path]) -> None:
         data: Data to save
         filepath: Path where to save the file
     """
-    with open(filepath, 'w') as f:
-        json.dump(data, f, indent=2)
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def create_dapo_processor(
+        data_source: str) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
+    """
+    Create a processor function for DAPO datasets.
+
+    Args:
+        data_source: The data source name
+
+    Returns:
+        A function that processes a single example
+    """
+
+    def processor(example: Dict[str, Any]) -> Dict[str, Any]:
+        return dapo_process_fn(example, data_source)
+
+    return processor
+
+
+def create_general_processor(
+        input_key: str, label_key: str,
+        data_source: str) -> Callable[[Dict[str, Any], int], Dict[str, Any]]:
+    """
+    Create a processor function for general datasets.
+
+    Args:
+        input_key: Key for input text in the example
+        label_key: Key for label/answer in the example
+        data_source: The data source name
+
+    Returns:
+        A function that processes a single example with index
+    """
+
+    def processor(example: Dict[str, Any], idx: int) -> Dict[str, Any]:
+        return process_fn(example, idx, input_key, label_key, data_source)
+
+    return processor
 
 
 def main() -> None:
@@ -241,31 +280,29 @@ def main() -> None:
     print(f'Dataset loaded with {len(raw_dataset)} samples', flush=True)
 
     if len(raw_dataset) > 0:
-        print(raw_dataset[0])
+        print('First sample:', raw_dataset[0])
 
     print('Processing dataset...', flush=True)
 
     # Process the dataset and remove original columns
     if args.dataset_name == 'dapo-math-17k':
+        # Create processor with data_source parameter
+        processor = create_dapo_processor(data_source)
         processed_dataset = raw_dataset.map(
-            function=dapo_process_fn,
-            with_indices=True,
+            function=processor,
             remove_columns=raw_dataset.column_names,
             num_proc=64)
     else:
-        # Create a wrapper function to pass additional arguments
-        def _process_fn_wrapper(example: Dict[str, Any],
-                                idx: int) -> Dict[str, Any]:
-            return process_fn(example, idx, args.input_key, args.label_key,
-                              data_source)
-
+        # Create processor with required parameters
+        processor = create_general_processor(args.input_key, args.label_key,
+                                             data_source)
         processed_dataset = raw_dataset.map(
-            function=_process_fn_wrapper,
+            function=processor,
             with_indices=True,
             remove_columns=raw_dataset.column_names)
 
     # Split into train/test if needed
-    if args.test_split_ratio > 0:
+    if 0 < args.test_split_ratio < 1:
         split_dataset = processed_dataset.train_test_split(
             test_size=args.test_split_ratio)
         train_dataset = split_dataset['train']
@@ -274,7 +311,7 @@ def main() -> None:
         train_dataset = processed_dataset
         test_dataset = processed_dataset
 
-    local_dir = os.path.join(args.local_save_dir, 'dapo')
+    local_dir = os.path.join(local_save_dir, 'dapo')
     Path(local_dir).mkdir(parents=True, exist_ok=True)
 
     print(f'Saving datasets to {local_dir}...', flush=True)
