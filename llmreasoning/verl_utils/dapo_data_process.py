@@ -311,7 +311,7 @@ def main() -> None:
         train_dataset = processed_dataset
         test_dataset = processed_dataset
 
-    local_dir = os.path.join(local_save_dir, 'dapo')
+    local_dir = os.path.join(args.local_save_dir, 'dapo')
     Path(local_dir).mkdir(parents=True, exist_ok=True)
 
     print(f'Saving datasets to {local_dir}...', flush=True)

@@ -39,7 +39,7 @@ openr1_system_prompt: Final[str] = (
 qwen_math_cot_prompt: Final[str] = (
     'Please reason step by step, and put your final answer within \\boxed{}.')
 
-default_system_prompt: Final[str] = 'You are a helpful AI assistant.'
+default_system_prompt: Final[str] = 'You are a helpful assistant.'
 
 # A factory for different types of system prompts.
 SYSTEM_PROMPT_FACTORY: Dict[str, Optional[str]] = {
@@ -233,6 +233,46 @@ class DatasetProcessor:
             )
             return False
 
+    def filter_fn(self, example: Dict[str, Any]) -> bool:
+        """
+        Filters examples based on specific criteria.
+        """
+        # 1. Check prompt content.
+        data_source = example.get('source', '')
+        if 'gpt-oss-120b' in data_source:
+            return True
+        return False
+
+    def preprocess_data_entry_oss(self, example: Dict[str,
+                                                      Any]) -> Dict[str, Any]:
+        """
+        Converts a raw dataset example into a simplified, processed format.
+
+        Args:
+            example: The raw example from the dataset.
+
+        Returns:
+            A dictionary with 'prompt', 'ground_truth', and 'model_difficulty'.
+        """
+        question: str = example.get('messages', [{}])[0].get('content', '')
+        gen_response: str = example.get('messages', [{}])[1].get('content', '')
+        ground_truth: str = example.get('metadata', {})
+        # Create the chat history list.
+        formatted_prompt, formatted_response = apply_chat_template(
+            tokenizer=self.tokenizer,
+            question=question,
+            response=gen_response,
+            system_prompt=self.system_prompt,
+            math_cot_prompt=self.qwen_math_cot,
+            apply_chat_template_method=self.args.apply_chat_template_method,
+            add_generation_prompt=self.args.add_generation_prompt,
+        )
+        return {
+            'question': formatted_prompt,
+            'response': formatted_response,
+            'ground_truth': ground_truth
+        }
+
     def preprocess_data_entry(
         self,
         example: Dict[str, Any],
@@ -292,7 +332,7 @@ class DatasetProcessor:
 
         # Use functools.partial to wrap the preprocessing function with its arguments
         # This is the cleanest way to pass additional arguments to the map function.
-        processing_fn = self.preprocess_data_entry
+        processing_fn = self.preprocess_data_entry_oss
 
         # Explicitly specify which columns to keep (the new column names created in preprocessing)
         # All other columns will be removed
@@ -415,6 +455,7 @@ def main() -> None:
 
     # === Run Main Processing Logic ===
     dataset = load_custom_dataset(args.data_path)
+    dataset = dataset.filter(processor.filter_fn, num_proc=args.num_proc)
     processor.process_and_save_dataset(dataset)
 
 
