@@ -6,4 +6,4 @@ install_path=/usr/local/Ascend
 source $install_path/ascend-toolkit/set_env.sh
 
 # 激活conda环境
-source /home/jianzhnie/llmtuner/software/miniconda3/bin/activate mindspeed_llm_sft
+source /home/jianzhnie/llmtuner/software/miniconda3/bin/activate rlhf

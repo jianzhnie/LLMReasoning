@@ -39,7 +39,7 @@ fi
 NODE_LIST_FILE="${1:-"./node_list.txt"}"
 
 #----------------------------------------
-# 全局配置 (可被环境变量覆盖)
+# 分布式训练全局配置 (可被环境变量覆盖)
 #----------------------------------------
 # 检查节点文件是否存在
 if [ ! -f "$NODE_LIST_FILE" ]; then
@@ -57,7 +57,7 @@ if [ ${#NODE_HOSTS[@]} -eq 0 ]; then
 fi
 
 # --- 训练相关参数，来自你原始脚本的配置 ---
-PROJECT_DIR="/home/jianzhnie/llmtuner/llm/LLMReasoning/llmreasoning/llmtoolkit/scale-training"
+PROJECT_DIR="/home/jianzhnie/llmtuner/llm/LLMReasoning/scripts/scale-training"
 DATA_PATH=""
 TOKENIZER_PATH=""
 CKPT_LOAD_DIR=""
@@ -74,15 +74,15 @@ OUTPUT_DIR="$PROJECT_DIR/work_dir"
 REMOTE_MAIN_SCRIPT="$PROJECT_DIR/launch_multi_nodes.sh"
 REMOTE_SCRIPT="$PROJECT_DIR/launch_single_node.sh"
 TRAIN_SCRIPT="$PROJECT_DIR/distributed_allreduce_demo.py"
-
-
 DATETIME=$(date +%Y-%m-%d_%H-%M-%S)
 LOG_DIR="$OUTPUT_DIR/logs/$DATETIME"
 CKPT_SAVE_DIR="$OUTPUT_DIR/model_ckpt/"
-LORA_CKPT_DIR="$OUTPUT_DIR/lora_ckpt/"
 
 # --- 复制脚本和配置 ---
 mkdir -p $LOG_DIR
+cp $REMOTE_MAIN_SCRIPT $LOG_DIR
+cp $REMOTE_SCRIPT $LOG_DIR
+cp $TRAIN_SCRIPT $LOG_DIR
 
 # --- 只读常量 ---
 readonly NUM_NODES=${#NODE_HOSTS[@]}
@@ -107,7 +107,7 @@ cleanup() {
             fi
         done
 
-        sleep 5 # 给予5秒钟的优雅退出时间
+        sleep 1.0 # 给1秒钟的优雅退出时间
 
         echo "   -> 正在检查并强制终止未退出的进程..."
         for pid in "${PIDS[@]}"; do
@@ -147,9 +147,6 @@ print_config() {
     echo "  日志保存目录    : $LOG_DIR"
     echo "  检查点保存目录  : $CKPT_SAVE_DIR"
     echo "========================================================"
-    # 创建日志目录
-    rm -rf "$LOG_DIR" # 可选：每次启动前清理旧日志
-    mkdir -p "$LOG_DIR"
 }
 
 # 启动所有节点
@@ -184,7 +181,6 @@ launch_nodes() {
             export MASTER_PORT='$MASTER_PORT';
             export CKPT_LOAD_DIR='$CKPT_LOAD_DIR';
             export CKPT_SAVE_DIR='$CKPT_SAVE_DIR';
-            export LORA_CKPT_DIR='$LORA_CKPT_DIR';
             export DATA_PATH='$DATA_PATH';
             export TOKENIZER_PATH='$TOKENIZER_PATH';
             export LOG_DIR='$LOG_DIR';
@@ -236,7 +232,8 @@ wait_for_completion() {
     else
         echo "💥 任务总结: $success_count 个成功, $failed_count 个失败。"
         echo "   请检查上述失败节点的日志文件进行排查。"
-        return 1
+        # 以失败状态码退出
+        exit 1
     fi
     echo "========================================================"
 }

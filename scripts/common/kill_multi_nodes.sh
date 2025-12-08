@@ -39,7 +39,7 @@ fi
 MAX_JOBS=16
 
 # 定义要 kill 的关键词（支持正则）
-KEYWORDS=("llmtuner" "llm_workspace" "mindspeed" "ray" "vllm" "python")
+KEYWORDS=("llmtuner" "mindspeed" "ray" "vllm" "verl" "python")
 # 终止进程的超时时间（秒），用于 SIGTERM。
 # 在此时间后，如果进程未退出，将执行 SIGKILL 强制终止
 KILL_TIMEOUT=3
