@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 # Correcting it to use `trackio` and aliasing it to `wandb`.
 import trackio as wandb  # Assuming 'wandb' is the desired alias for trackio
 
+
 # --- Data Generation Functions ---
 def generate_loss_curve(
     epoch: int,
@@ -72,7 +73,8 @@ def generate_accuracy_curve(
     # Calculate the normalized progress.
     progress: float = epoch / num_epochs
     # Sigmoid curve to simulate accuracy increase.
-    base_curve: float = max_acc / (1 + math.exp(-6 * (progress - 0.5))) + min_acc
+    base_curve: float = max_acc / (1 + math.exp(-6 *
+                                                (progress - 0.5))) + min_acc
 
     # Add Gaussian noise that scales down with progress.
     noise_scale: float = 0.08 * (1 - progress * 0.5)
@@ -143,7 +145,6 @@ def run_single_simulation(epochs: int) -> None:
         wandb.log(metrics_to_log)
 
 
-
 # --- Main Execution Block ---
 def main() -> None:
     """
@@ -158,8 +159,8 @@ def main() -> None:
     # Total number of epochs for each simulation run.
     epochs: int = 20
 
-    project_id: str = "trackio-demo"
-    run_id: str = "test-1"
+    project_id: str = 'trackio-demo'
+    run_id: str = 'test-1'
     # Initialize a new wandb run with a unique name and configuration.
     # It's good practice to set a descriptive project name, a unique run name,
     # and log key hyperparameters in the config dictionary.
@@ -172,15 +173,15 @@ def main() -> None:
             'batch_size': 32,
         },
         # Note: space_id and dataset_id are specific to trackio, not standard wandb.
-        space_id=f'jianzhnie/LLMReasoning',
-        dataset_id=f'LLMReasoning-{project_id}',
+        space_id='jianzhnie/LLMReasoning',
+        dataset_id='LLMReasoning-{project_id}',
     )
     # Run the simulation for the specified number of epochs.
     run_single_simulation(epochs)
-    
+
     # Finalize the current wandb run to close it properly.
     wandb.finish()
-    print(f'Completed simulation run.')
+    print('Completed simulation run.')
 
 
 if __name__ == '__main__':
