@@ -73,9 +73,6 @@ done
 # SSH 参数：静默模式、自动接受指纹、不再读取/写入 known_hosts、超时5秒
 SSH_OPTS="-q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"
 
-# 移除 set -e 使脚本在单个节点失败时仍能继续执行
-# set -e
-
 # 1. 检查并安装依赖
 if ! command -v sshpass &> /dev/null; then
     echo "📦 正在安装依赖 sshpass..."
@@ -100,7 +97,10 @@ done
 # 3. 生成本地密钥 (若无)
 if [ ! -f ~/.ssh/id_rsa ]; then
     echo "🔑 正在生成本地 SSH 密钥..."
-    ssh-keygen -t rsa -b 4096 -q -f ~/.ssh/id_rsa -N ""
+    ssh-keygen -t rsa -b 4096 -q -f ~/.ssh/id_rsa -N "" || {
+        echo "❌ 生成本地 SSH 密钥失败"
+        exit 1
+    }
 fi
 
 # 4. 解析 IP 列表文件
@@ -143,8 +143,11 @@ echo "------------------------------------------------"
 echo "Step 1: 正在生成并收集各节点的公钥 (已跳过指纹确认)..."
 
 success_count=0
-for node in "${nodes[@]}"; do
-    echo " -> 正在处理: $node"
+failed_nodes=()
+
+for i in "${!nodes[@]}"; do
+    node="${nodes[$i]}"
+    echo "[$((i+1))/${#nodes[@]}] -> 正在处理: $node"
 
     # 远程执行：修复权限 -> 创建.ssh -> 生成密钥 -> 传回公钥内容
     pub_content=$(sshpass -p "$hostpassword" ssh $SSH_OPTS "$node" "
@@ -160,6 +163,7 @@ for node in "${nodes[@]}"; do
         echo "    ✅ 成功处理: $node"
     else
         echo "    ⚠️  连接失败: $node (请检查网络或密码)"
+        failed_nodes+=("$node")
     fi
 done
 
@@ -175,22 +179,39 @@ sort -u ~/.ssh/authorized_keys -o ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 
 # 分发到所有远程节点
-for node in "${nodes[@]}"; do
-    echo " -> 部署全量公钥至: $node"
+deploy_success_count=0
+for i in "${!nodes[@]}"; do
+    node="${nodes[$i]}"
+    echo "[$((i+1))/${#nodes[@]}] -> 部署全量公钥至: $node"
 
     # 1. 传输汇总后的文件
     if sshpass -p "$hostpassword" scp $SSH_OPTS "$all_keys_file" "$node:.ssh/authorized_keys.tmp" 2>/dev/null; then
         # 2. 远程执行：备份原文件，替换，设置权限
-        sshpass -p "$hostpassword" ssh $SSH_OPTS "$node" "
+        if sshpass -p "$hostpassword" ssh $SSH_OPTS "$node" "
             mv ~/.ssh/authorized_keys ~/.ssh/authorized_keys.bak 2>/dev/null || true
             mv ~/.ssh/authorized_keys.tmp ~/.ssh/authorized_keys
             chmod 600 ~/.ssh/authorized_keys
-        " 2>/dev/null && echo "    ✅ 成功部署至: $node" || echo "    ❌ 部署失败: $node"
+        " 2>/dev/null; then
+            echo "    ✅ 成功部署至: $node"
+            ((deploy_success_count++))
+        else
+            echo "    ❌ 部署失败: $node"
+        fi
     else
         echo "    ❌ 文件传输失败: $node"
     fi
 done
 
 echo "------------------------------------------------"
-echo "✅ 全部完成! 成功连接 ${success_count}/${#nodes[@]} 个节点"
+echo "------------------------------------------------"
+echo "✅ 全部完成! 收集公钥成功 ${success_count}/${#nodes[@]} 个节点"
+echo "✅ 部署授权成功 ${deploy_success_count}/${#nodes[@]} 个节点"
+
+if [ ${#failed_nodes[@]} -gt 0 ]; then
+    echo "⚠️  以下节点处理失败:"
+    for failed_node in "${failed_nodes[@]}"; do
+        echo "   - $failed_node"
+    done
+fi
+
 echo "💡 提示: 现在可以从任何节点 SSH 到任何其他节点而无需密码"
