@@ -39,6 +39,10 @@
 [TrackIO 日志追踪工具](docs/trackio_intro.md) | [Script](https://gitee.com/jianzhnie/LLMReasoning/blob/main/examples/trackio_demo.py)
 
 
-[自动化 SSH 免密登录配置脚本](docs/auto_ssh_config.md) | [Scripts](https://gitee.com/jianzhnie/LLMReasoning/blob/main/scripts/common/auto_ssh_config.sh)
+[自动化 SSH 免密登录配置脚本](docs/auto_ssh_config.md) | [Scripts](https://gitee.com/jianzhnie/LLMReasoning/blob/main/scripts/cluster/auto_ssh_config.sh)
 
-[自定义 Bashrc 配置文件和多节点同步脚本](docs/custom_bashrc.md) 
+自动化添加用户脚本 [Scripts](https://gitee.com/jianzhnie/LLMReasoning/blob/main/scripts/cluster/auto_add_user.sh)
+
+[自动化配置 NFS 脚本](docs/build_nfs_server.md) | [Scripts](https://gitee.com/jianzhnie/LLMReasoning/blob/main/scripts/cluster/auto_build_nfs.sh)
+
+[自定义 Bashrc 配置文件和多节点同步脚本](docs/custom_bashrc.md) | [Scripts](https://gitee.com/jianzhnie/LLMReasoning/blob/main/scripts/cluster/auto_bashrc_config.sh)
