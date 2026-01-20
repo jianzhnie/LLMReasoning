@@ -117,7 +117,7 @@ class SimpoMemTrainer(BaseTrainer):
 
         # --- 指标计算 ---
         metrics = self._calculate_metrics(losses, sft_loss, chosen_rewards, rejected_rewards)
-        
+
         return losses.mean(), metrics
 
     def compute_preference_loss(
@@ -141,7 +141,7 @@ class SimpoMemTrainer(BaseTrainer):
         if self.args.simpo_loss_type == "orpo":
             metrics["sft_loss"] = sft_loss.detach().mean()
             metrics["odds_ratio_loss"] = ((losses - sft_loss) / self.args.simpo_beta).detach().mean()
-            
+
         return metrics
 
     # 其他辅助函数（simpo_loss, _compute_log_probs_single 等）保持不变

@@ -159,7 +159,7 @@ def simpo_loss(
 
 - `chosen_rewards`, `rejected_rewards`: 计算隐式奖励（implicit rewards）。在偏好学习中，奖励值不是显式给定的，而是通过模型的对数概率派生出来的。这里用 `beta * log_probs` 作为奖励的代理。使用 `.detach()` 是因为这些奖励值仅用于监控和分析，我们不希望它们的梯度影响模型的训练。
 
-  
+
 
 #### SimPO 算法的损失计算
 
@@ -239,7 +239,7 @@ def _get_batch_log_probs(
     if mpu.get_context_parallel_world_size() > 1:
         # Context Parallelism logic
         torch.distributed.all_reduce(...)
-    
+
     return all_log_probs, valid_length
 ```
 
@@ -297,4 +297,3 @@ $$
 **无参考模型（Reference-Free）**：SimPO 摒弃了 DPO 所需的参考模型（通常为 SFT 模型），直接使用当前策略模型（Policy Model）的平均对数概率作为隐式奖励。这一设计显著降低了训练的内存与计算开销，无需在训练过程中加载和维护额外模型。
 
 **长度归一化（Length Normalization）**：SimPO 的隐式奖励采用**平均**对数概率，即 $ r_{\text{SimPO}}(x,y) = \frac{\beta}{|y|} \log \pi_\theta(y|x) $，而非总和。这一设计有效缓解了“长度偏差”问题——即更长序列因包含更多 token 而总对数概率更低，导致模型倾向于生成短答案。长度归一化通过将总概率除以序列长度，纠正了这一偏差，使奖励机制与模型解码目标更一致。
-

@@ -75,7 +75,7 @@ pip install -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.al
 #### **设置阿里源(推荐)**
 
 ```text
-pip config set global.index-url https://mirrors.aliyun.com/pypi/simple 
+pip config set global.index-url https://mirrors.aliyun.com/pypi/simple
 
 pip config set install.trusted-host mirrors.aliyun.com
 ```

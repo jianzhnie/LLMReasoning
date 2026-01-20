@@ -78,7 +78,7 @@ class PassKAdvantage:
     def __init__(self, k: int):
         """
         Initializes the Pass@k advantage calculator.
-        
+
         Args:
             k (int): The k parameter for the Pass@k metric.
         """
@@ -104,9 +104,9 @@ class PassKAdvantage:
                                        Responses with the same group ID are considered part of the same Pass@k group.
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]: 
+            Tuple[torch.Tensor, torch.Tensor]:
                 - advantages (torch.Tensor): The calculated advantage values [batch_size, seq_len].
-                - baselines (torch.Tensor): The baseline values, which are identical to the advantages 
+                - baselines (torch.Tensor): The baseline values, which are identical to the advantages
                                           in this implementation.
         """
         with torch.no_grad():
@@ -115,27 +115,27 @@ class PassKAdvantage:
             # as per the problem definition.
             # `response_rewards` will be a tensor of shape [batch_size].
             response_rewards = (token_rewards.sum(dim=-1) > 0).float()
-            
+
             # 2. Prepare data for group-wise calculation
             unique_groups = sorted(list(set(group_indices)))
-            
+
             # `advantage_map` will store the calculated advantage for each group
             advantage_map = {}
-            
+
             # 3. Calculate advantages for each group
             for group_id in unique_groups:
                 # Get the indices of responses belonging to the current group
                 group_mask = torch.tensor([idx == group_id for idx in group_indices], device=response_rewards.device)
-                
+
                 # Extract rewards for the current group
                 group_rewards_tensor = response_rewards[group_mask]
-                
+
                 # Convert to NumPy for combination calculations
                 group_rewards_np = group_rewards_tensor.cpu().numpy()
-                
+
                 num_rollout = len(group_rewards_np)
                 num_neg = np.sum(group_rewards_np == 0)
-                
+
                 # Skip calculation if k is greater than the number of responses or negative responses
                 if self.k > num_rollout or self.k > num_neg:
                     # In this case, Pass@k is always 1, so the advantage is undefined or 0.
@@ -149,7 +149,7 @@ class PassKAdvantage:
                 # Calculate group-level statistics
                 R_group = 1.0 - (comb(num_neg, self.k, exact=True) / comb(num_rollout, self.k, exact=True))
                 sigma_group = np.sqrt(R_group * (1.0 - R_group))
-                
+
                 # Check for numerical stability
                 if sigma_group < 1e-8:
                     advantages_np = np.zeros_like(group_rewards_np, dtype=np.float32)
@@ -157,12 +157,12 @@ class PassKAdvantage:
                     # Calculate advantages for positive and negative samples
                     A_pos = (1.0 - R_group) / sigma_group
                     A_neg = (R_group - (comb(num_neg - 1, self.k - 1, exact=True) / comb(num_rollout - 1, self.k - 1, exact=True))) / sigma_group
-                    
+
                     # Assign advantages based on reward values
                     advantages_np = np.where(group_rewards_np == 1, A_pos, A_neg)
-                
+
                 advantage_map[group_id] = advantages_np
-            
+
             # 4. Create a result tensor and populate it with the calculated advantages
             advantages_tensor = torch.zeros_like(response_rewards)
             for group_id, adv_np in advantage_map.items():
@@ -171,7 +171,7 @@ class PassKAdvantage:
 
         # 5. Expand advantages to the token level and apply the response mask
         advantages = advantages_tensor.unsqueeze(-1) * response_mask
-        
+
         # In this specific context, baseline is identical to the advantages
         baselines = advantages
 
@@ -192,7 +192,7 @@ from collections import defaultdict
 class PassKAdvantage:
     def __init__(self, k: int):
         """Initialize Pass@k advantage calculator
-        
+
         Args:
             k (int): The k parameter for Pass@k metric
         """
@@ -200,85 +200,85 @@ class PassKAdvantage:
 
     def calculate_group_statistics(self, rewards: np.ndarray) -> Tuple[float, float]:
         """Calculate group-level statistics based on rewards
-        
+
         Args:
             rewards (np.ndarray): Binary rewards array (0 for negative, 1 for positive)
-            
+
         Returns:
             Tuple[float, float]: Mean reward and standard deviation
         """
         N_total = len(rewards)
         N_neg = len(np.where(rewards == 0)[0])
         N_pos = N_total - N_neg
-        
+
         # Calculate mean reward using combination formula
         R_group = 1 - (comb(N_neg, self.k) / comb(N_total, self.k))
-        
+
         # Calculate standard deviation
         sigma_group = np.sqrt(R_group * (1 - R_group))
-        
+
         return R_group, sigma_group
 
     def compute_advantages(self, rewards: np.ndarray) -> np.ndarray:
         """Compute advantage values for each response
-        
+
         Args:
             rewards (np.ndarray): Binary rewards array
-            
+
         Returns:
             np.ndarray: Advantage values for each response
         """
         R_group, sigma_group = self.calculate_group_statistics(rewards)
         N_total = len(rewards)
         N_neg = len(np.where(rewards == 0)[0])
-        
+
         # Calculate advantages for positive and negative samples
         A_pos = (1 - R_group) / (sigma_group + 1e-8)  # Add epsilon for numerical stability
         A_neg = (1 - R_group - comb(N_neg-1, self.k-1)/comb(N_total-1, self.k-1)) / (sigma_group + 1e-8)
-        
+
         # Assign advantages based on rewards
         advantages = np.where(rewards == 1, A_pos, A_neg)
-        
+
         return advantages
 
-    def __call__(self, token_rewards: torch.Tensor, 
-                 response_mask: torch.Tensor, 
+    def __call__(self, token_rewards: torch.Tensor,
+                 response_mask: torch.Tensor,
                  group_indices: List[int]) -> Tuple[torch.Tensor, torch.Tensor]:
         """Calculate advantages for batched responses
-        
+
         Args:
             token_rewards (torch.Tensor): Token-level rewards [batch_size, seq_len]
             response_mask (torch.Tensor): Mask for valid tokens [batch_size, seq_len]
             group_indices (List[int]): Group indices for each response
-            
+
         Returns:
             Tuple[torch.Tensor, torch.Tensor]: Advantages and baseline values
         """
         # Get response-level scores
         scores = token_rewards.sum(dim=-1)
-        
+
         # Group responses by index
         grouped_scores = defaultdict(list)
         index_to_batch = defaultdict(list)
-        
+
         with torch.no_grad():
             # Group scores by index
             for i, idx in enumerate(group_indices):
                 grouped_scores[idx].append(scores[i].item())
                 index_to_batch[idx].append(i)
-            
+
             # Calculate advantages for each group
             for idx in grouped_scores:
                 group_rewards = np.array(grouped_scores[idx])
                 advantages = self.compute_advantages(group_rewards)
-                
+
                 # Assign advantages back to original batch positions
                 for i, batch_idx in enumerate(index_to_batch[idx]):
                     scores[batch_idx] = advantages[i]
-        
+
         # Apply response mask and expand dimensions
         advantages = scores.unsqueeze(-1) * response_mask
-        
+
         return advantages, advantages
 
 # Usage example:
@@ -290,4 +290,3 @@ advantages, baseline = advantage_calculator(
     group_indices=indices
 )
 ```
-
