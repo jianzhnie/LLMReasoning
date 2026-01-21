@@ -16,7 +16,7 @@ Usage: $0 [OPTIONS]
 Automate SSH key distribution for multiple nodes to enable passwordless login.
 
 OPTIONS:
-    -f, --file PATH     Path to IP list file (default: ./ip.list.current)
+    -f, --file PATH     Path to IP list file (default: ./ip.list.txt)
     -u, --user NAME     Default username for hosts without @ specified (default: jianzhnie)
     -p, --password PASS Password for SSH connection (default: pcl@0312)
     -h, --help          Show this help message
@@ -39,7 +39,7 @@ NOTES:
 }
 
 # --- 配置区 ---
-filename="./ip.list.current"
+filename="./ip.list.txt"  # 修改默认文件名为更通用的名称
 default_user="jianzhnie"
 hostpassword='pcl@0312'  # 建议使用单引号包裹，防止特殊字符被转义
 
@@ -173,13 +173,19 @@ sort -u "$all_keys_file" -o "$all_keys_file"
 echo "------------------------------------------------"
 echo "Step 2: 正在全网分发互信授权文件..."
 
-# 更新本地
-cat "$all_keys_file" >> ~/.ssh/authorized_keys
-sort -u ~/.ssh/authorized_keys -o ~/.ssh/authorized_keys
+# 更新本地 authorized_keys，先备份再更新
+if [ -f ~/.ssh/authorized_keys ]; then
+    cp ~/.ssh/authorized_keys ~/.ssh/authorized_keys.bak
+    sort -u ~/.ssh/authorized_keys "$all_keys_file" -o ~/.ssh/authorized_keys
+else
+    cp "$all_keys_file" ~/.ssh/authorized_keys
+fi
 chmod 600 ~/.ssh/authorized_keys
 
 # 分发到所有远程节点
 deploy_success_count=0
+deploy_failed_nodes=()
+
 for i in "${!nodes[@]}"; do
     node="${nodes[$i]}"
     echo "[$((i+1))/${#nodes[@]}] -> 部署全量公钥至: $node"
@@ -188,17 +194,22 @@ for i in "${!nodes[@]}"; do
     if sshpass -p "$hostpassword" scp $SSH_OPTS "$all_keys_file" "$node:.ssh/authorized_keys.tmp" 2>/dev/null; then
         # 2. 远程执行：备份原文件，替换，设置权限
         if sshpass -p "$hostpassword" ssh $SSH_OPTS "$node" "
-            mv ~/.ssh/authorized_keys ~/.ssh/authorized_keys.bak 2>/dev/null || true
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            [ -f ~/.ssh/authorized_keys ] && mv ~/.ssh/authorized_keys ~/.ssh/authorized_keys.bak 2>/dev/null || true
             mv ~/.ssh/authorized_keys.tmp ~/.ssh/authorized_keys
             chmod 600 ~/.ssh/authorized_keys
+            chown \$(id -un):\$(id -gn) ~/.ssh ~/.ssh/authorized_keys 2>/dev/null || true
         " 2>/dev/null; then
             echo "    ✅ 成功部署至: $node"
             ((deploy_success_count++))
         else
             echo "    ❌ 部署失败: $node"
+            deploy_failed_nodes+=("$node")
         fi
     else
         echo "    ❌ 文件传输失败: $node"
+        deploy_failed_nodes+=("$node")
     fi
 done
 
@@ -208,8 +219,15 @@ echo "✅ 全部完成! 收集公钥成功 ${success_count}/${#nodes[@]} 个节�
 echo "✅ 部署授权成功 ${deploy_success_count}/${#nodes[@]} 个节点"
 
 if [ ${#failed_nodes[@]} -gt 0 ]; then
-    echo "⚠️  以下节点处理失败:"
+    echo "⚠️  以下节点公钥收集失败:"
     for failed_node in "${failed_nodes[@]}"; do
+        echo "   - $failed_node"
+    done
+fi
+
+if [ ${#deploy_failed_nodes[@]} -gt 0 ]; then
+    echo "⚠️  以下节点授权部署失败:"
+    for failed_node in "${deploy_failed_nodes[@]}"; do
         echo "   - $failed_node"
     done
 fi
