@@ -8,6 +8,7 @@
 #   2. 自动跳过指纹确认
 #   3. 错误隔离，单个节点失败不影响其他节点
 #   4. 显示处理进度和统计结果
+#   5. 包含超时控制防止连接挂起
 # =================================================================
 
 show_help() {
@@ -19,6 +20,8 @@ Automate user deletion across multiple nodes.
 OPTIONS:
     -f, --file PATH     Path to IP list file (default: ./ip.list.txt)
     -u, --user NAME     Username to delete on nodes (default: jianzhnie)
+    -F, --force         Force delete user (kill processes first)
+    -t, --timeout SEC   Timeout for each SSH connection (default: 30 seconds)
     -h, --help          Show this help message
 
 IP LIST FORMAT:
@@ -35,6 +38,8 @@ IP LIST FORMAT:
 # --- 配置区 ---
 filename="./ip.list.txt"
 default_username="jianzhnie"
+force_delete="no"
+timeout_seconds=30
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -45,6 +50,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         -u|--user)
             default_username="$2"
+            shift 2
+            ;;
+        -F|--force)
+            force_delete="yes"
+            shift
+            ;;
+        -t|--timeout)
+            timeout_seconds="$2"
             shift 2
             ;;
         -h|--help)
@@ -59,14 +72,22 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# SSH 参数：静默模式、自动接受指纹、不再读取/写入 known_hosts、超时5秒
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"
+# SSH 参数：静默模式、自动接受指纹、不再读取/写入 known_hosts、超时设置
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=$timeout_seconds -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
 
 # 检查必需的命令
-for cmd in ssh sshpass; do
+for cmd in ssh sshpass timeout; do
     if ! command -v "$cmd" &> /dev/null; then
-        echo "❌ 错误: 未找到命令 $cmd"
-        exit 1
+        if [ "$cmd" = "timeout" ] && [ "$(uname)" = "Darwin" ]; then
+            # On macOS, coreutils provides gtimeout
+            if ! command -v "gtimeout" &> /dev/null; then
+                echo "❌ 错误: 未找到命令 timeout (或 macOS 上的 gtimeout)"
+                exit 1
+            fi
+        elif [ "$cmd" != "timeout" ]; then
+            echo "❌ 错误: 未找到命令 $cmd"
+            exit 1
+        fi
     fi
 done
 
@@ -107,23 +128,52 @@ for i in "${!nodes[@]}"; do
     # 构建删除用户的命令
     remote_cmd="
         if id '$default_username' &>/dev/null; then
-            # 删除用户及其主目录
-            userdel -r '$default_username'
+            # 尝试正常删除用户
+            userdel '$default_username' 2>/dev/null
             if [ \$? -eq 0 ]; then
                 echo '✅ 用户 $default_username 在 $ip 删除成功'
             else
-                echo '❌ 用户 $default_username 在 $ip 删除失败'
+                # 如果正常删除失败，且启用了强制删除，则尝试强制删除
+                if [ '$force_delete' = 'yes' ]; then
+                    echo '⚠️ 正常删除失败，正在尝试强制删除...'
+                    # 杀死用户的所有进程
+                    pkill -u '$default_username' 2>/dev/null || true
+                    sleep 2
+                    # 再次尝试删除用户
+                    userdel -f -r '$default_username' 2>/dev/null
+                    if [ \$? -eq 0 ]; then
+                        echo '✅ 用户 $default_username 在 $ip 强制删除成功'
+                    else
+                        echo '❌ 用户 $default_username 在 $ip 强制删除也失败'
+                    fi
+                else
+                    echo '❌ 用户 $default_username 在 $ip 删除失败，请使用 -F/--force 选项重试'
+                fi
             fi
         else
             echo '⚠️ 用户 $default_username 不存在，跳过删除'
         fi
     "
 
-    # 执行远程命令
-    if ssh $SSH_OPTS "root@$ip" "$remote_cmd"; then
+    # 使用 timeout 命令执行远程命令，防止挂起
+    if command -v gtimeout &> /dev/null; then
+        # macOS with coreutils
+        timeout_cmd="gtimeout $timeout_seconds ssh $SSH_OPTS \"root@$ip\" \"$remote_cmd\""
+    else
+        # Linux or macOS with GNU coreutils in PATH
+        timeout_cmd="timeout $timeout_seconds ssh $SSH_OPTS \"root@$ip\" \"$remote_cmd\""
+    fi
+
+    # 执行远程命令并捕获退出码
+    if eval "$timeout_cmd"; then
         ((success_count++))
     else
-        echo "❌ 在节点 $ip 上执行失败"
+        exit_code=$?
+        if [ $exit_code -eq 124 ]; then
+            echo "⏰ 节点 $ip 超时 (超过 $timeout_seconds 秒)"
+        else
+            echo "❌ 在节点 $ip 上执行失败 (退出码: $exit_code)"
+        fi
         failed_nodes+=("$ip")
     fi
 done
