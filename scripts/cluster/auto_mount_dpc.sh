@@ -18,7 +18,7 @@ TARGET="/home/${user}/llmtuner"
 mount_on_node() {
     local node=$1
     echo "Processing node: $node"
-    
+
     # SSH command to mount
     ssh ${user}@$node "
         if [ ! -d '$TARGET' ]; then
