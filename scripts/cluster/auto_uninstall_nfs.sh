@@ -81,7 +81,7 @@ if [[ ! "$SHARE_PATH" =~ ^/ ]]; then
 fi
 
 # 加载客户端IP列表
-if [[ -f "$CLIENT_LIST_FILE" ]]; do
+if [[ -f "$CLIENT_LIST_FILE" ]]; then
     echo "从文件 $CLIENT_LIST_FILE 加载客户端IP列表..."
     mapfile -t clients < <(grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' "$CLIENT_LIST_FILE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 else
