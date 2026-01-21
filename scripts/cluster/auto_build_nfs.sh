@@ -4,9 +4,9 @@
 set -uo pipefail  # 不使用-e因为我们要处理单个节点的错误而不中断整个流程
 
 # 默认配置
-DEFAULT_SERVER_IP="10.42.24.194"
+
 DEFAULT_SHARE_PATH="/home/jianzhnie/llmtuner"
-DEFAULT_CLIENT_LIST_FILE="ip.list.txt"
+DEFAULT_NODE_LIST_FILE="ip.list.txt"
 DEFAULT_MOUNT_POINT="/home/jianzhnie/llmtuner"
 
 # 显示帮助信息
@@ -15,33 +15,27 @@ show_help() {
 用法: $0 [选项]
 
 选项:
-    -s, --server-ip IP          NFS服务器IP地址 (默认: $DEFAULT_SERVER_IP)
-    -c, --client-list FILE      客户端IP列表文件，每行一个IP (默认: $DEFAULT_CLIENT_LIST_FILE)
+    -c, --node-list FILE        节点IP列表文件，每行一个IP，第一个为服务器，其余为客户端 (默认: $DEFAULT_NODE_LIST_FILE)
     -p, --share-path PATH       NFS共享路径 (默认: $DEFAULT_SHARE_PATH)
     -m, --mount-point PATH      客户端挂载点 (默认: $DEFAULT_MOUNT_POINT)
     -h, --help                  显示此帮助信息
 
 注意:
-    - 如果未指定客户端IP列表文件，则会从默认位置读取
-    - 客户端IP列表文件格式：每行一个IP地址
+    - 如果未指定节点IP列表文件，则会从默认位置读取
+    - 节点IP列表文件格式：每行一个IP地址，第一个IP将作为NFS服务器，其余作为客户端
 EOF
 }
 
 # 初始化变量
-SERVER_IP="$DEFAULT_SERVER_IP"
 SHARE_PATH="$DEFAULT_SHARE_PATH"
-CLIENT_LIST_FILE="$DEFAULT_CLIENT_LIST_FILE"
+NODE_LIST_FILE="$DEFAULT_NODE_LIST_FILE"
 MOUNT_POINT="$DEFAULT_MOUNT_POINT"
 
 # 解析命令行参数
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -s|--server-ip)
-            SERVER_IP="$2"
-            shift 2
-            ;;
-        -c|--client-list)
-            CLIENT_LIST_FILE="$2"
+        -c|--node-list)
+            NODE_LIST_FILE="$2"
             shift 2
             ;;
         -p|--share-path)
@@ -64,12 +58,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# 验证输入参数
-if [[ ! "$SERVER_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-    echo "错误: 无效的服务器IP地址: $SERVER_IP"
-    exit 1
-fi
-
 if [[ ! "$MOUNT_POINT" =~ ^/ ]]; then
     echo "错误: 挂载点路径必须是绝对路径: $MOUNT_POINT"
     exit 1
@@ -80,13 +68,14 @@ if [[ ! "$SHARE_PATH" =~ ^/ ]]; then
     exit 1
 fi
 
-# 加载客户端IP列表
-if [[ -f "$CLIENT_LIST_FILE" ]]; then
-    echo "从文件 $CLIENT_LIST_FILE 加载客户端IP列表..."
-    mapfile -t clients < <(grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' "$CLIENT_LIST_FILE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+# 加载节点IP列表
+if [[ -f "$NODE_LIST_FILE" ]]; then
+    echo "从文件 $NODE_LIST_FILE 加载节点IP列表..."
+    mapfile -t nodes < <(grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' "$NODE_LIST_FILE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 else
-    echo "警告: 客户端IP列表文件 $CLIENT_LIST_FILE 不存在，使用默认IP列表"
-    clients=(
+    echo "警告: 节点IP列表文件 $NODE_LIST_FILE 不存在，使用默认IP列表"
+    nodes=(
+        10.42.24.194
         10.42.24.195
         10.42.24.196
         10.42.24.197
@@ -105,14 +94,26 @@ else
     )
 fi
 
-# 验证客户端IP数量
-if [[ ${#clients[@]} -eq 0 ]]; then
-    echo "错误: 没有找到有效的客户端IP地址"
+# 验证节点IP数量
+if [[ ${#nodes[@]} -eq 0 ]]; then
+    echo "错误: 没有找到有效的节点IP地址"
     exit 1
 fi
 
-echo "找到 ${#clients[@]} 个客户端IP地址"
+# 第一个节点作为服务器，其余作为客户端
+SERVER_IP="${nodes[0]}"
+clients=("${nodes[@]:1}")
+
+echo "找到 ${#nodes[@]} 个节点IP地址"
 echo "NFS服务器: $SERVER_IP"
+echo "NFS客户端数量: ${#clients[@]}"
+
+# 如果只有一个节点，那么该节点既是服务器也是客户端（用于自身挂载）
+if [[ ${#clients[@]} -eq 0 ]]; then
+    echo "提示: 只有一个节点，将该节点既作为服务器也作为客户端"
+    clients=("$SERVER_IP")
+fi
+
 echo "共享路径: $SHARE_PATH"
 echo "挂载点: $MOUNT_POINT"
 
