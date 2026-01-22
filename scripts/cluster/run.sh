@@ -20,7 +20,13 @@ bash auto_config_ssh.sh \
 
 # 自动构建 NFS 脚本
 bash auto_build_nfs.sh \
-    --server-ip 10.42.24.194 \
-    --client-list node_list.txt \
-    --share-path /home/jianzhnie/share_dpc \
-    --mount-point /home/jianzhnie/share_dpc
+    --node-list node_list_all.txt \
+    --share-path /home/jianzhnie/llmtuner \
+    --mount-point /home/jianzhnie/llmtuner
+
+
+# 自动构建 NFS 脚本
+bash auto_build_nfs.sh \
+    --node-list node_list_all.txt \
+    --share-path /home/fdd/workspace \
+    --mount-point /home/fdd/workspace
