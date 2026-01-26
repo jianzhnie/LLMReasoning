@@ -32,6 +32,13 @@ SFT_TRAINING_LOG_PATTERN = re.compile(
     r'lm loss:\s*([\d\.E+-]+)\s*\|.*?'
     r'grad norm:\s*([\d\.E+-]+).*?\|\s*number of skipped iterations:.*?')
 
+PRETRAIN_TRAINING_LOG_PATTERN = re.compile(
+    r'iteration\s+(\d+)/\s*\d+\s*\|.*?'
+    r'throughput per GPU \(TFLOP/s/GPU\):\s*([\d\.E+-]+)\s*\|.*?'
+    r'learning rate:\s*([\d\.E\s+-]+)\s*\|.*?'
+    r'lm loss:\s*([\d\.E+-]+)\s*\|.*?'
+    r'grad norm:\s*([\d\.E+-]+).*?\|\s*number of skipped iterations:.*?')
+
 # Map stages to their respective patterns and field configurations
 TRAINING_LOG_CONFIGS = {
     'sft': {
@@ -44,6 +51,15 @@ TRAINING_LOG_CONFIGS = {
         'fields': [
             'tflops_per_gpu', 'learning_rate', 'rewards_accuracies', 'lm_loss',
             'grad_norm'
+        ]
+    },
+    'pretrain': {
+        'pattern': PRETRAIN_TRAINING_LOG_PATTERN,
+        'fields': [
+            'tflops_per_gpu',
+            'learning_rate',
+            'lm_loss',
+            'grad_norm',
         ]
     }
 }
@@ -87,8 +103,10 @@ def extract_metrics_from_specific_log(
         iteration = int(match.group(1))
         # Extract metrics based on the field configuration
         for i, field_name in enumerate(fields):
-            metrics[field_name] = float(
-                match.group(i + 2))  # +2 because group(1) is iteration
+            val_str = match.group(i + 2)  # +2 because group(1) is iteration
+            if val_str:
+                val_str = val_str.replace(' ', '').replace('\n', '')
+            metrics[field_name] = float(val_str)
 
     except (ValueError, IndexError) as e:
         print(
@@ -174,7 +192,7 @@ def main():
     parser.add_argument('--stage',
                         type=str,
                         default='sft',
-                        choices=['sft', 'dpo'],
+                        choices=['sft', 'dpo', 'pretrain'],
                         help='Training stage type (default: sft).')
     parser.add_argument(
         '--flush-secs',
