@@ -1,218 +1,299 @@
 #!/bin/bash
+#
+# Auto Uninstall NFS Server & Clients Script
+#
+# 功能：
+# 1. 停止并禁用 NFS 服务
+# 2. 清理 NFS 服务端配置 (exports, 防火墙)
+# 3. 清理 NFS 客户端配置 (卸载挂载点, fstab)
+# 4. 支持多节点批量操作
+#
+# 对应安装脚本: scripts/cluster/auto_build_nfs.sh
 
-# 设置脚本选项
-set -uo pipefail  # 不使用-e因为我们要处理单个节点的错误而不中断整个流程
+set -u
 
-# 默认配置
+# ================= 配置与默认值 =================
 DEFAULT_SHARE_PATH="/home/jianzhnie/llmtuner"
 DEFAULT_NODE_LIST_FILE="ip.list.txt"
 DEFAULT_MOUNT_POINT="/home/jianzhnie/llmtuner"
 
-# 显示帮助信息
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# ================= 辅助函数 =================
+
+log_info() {
+    echo -e "${GREEN}[INFO] $(date '+%Y-%m-%d %H:%M:%S') $1${NC}"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN] $(date '+%Y-%m-%d %H:%M:%S') $1${NC}"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $1${NC}"
+}
+
 show_help() {
     cat << EOF
 用法: $0 [选项]
 
 选项:
-    -c, --node-list FILE        节点IP列表文件，每行一个IP，第一个为服务器，其余为客户端 (默认: $DEFAULT_NODE_LIST_FILE)
-    -p, --share-path PATH       NFS共享路径 (默认: $DEFAULT_SHARE_PATH)
-    -m, --mount-point PATH      客户端挂载点 (默认: $DEFAULT_MOUNT_POINT)
+    -c, --node-list FILE        节点IP列表文件 (默认: $DEFAULT_NODE_LIST_FILE)
+                                格式: 第一行为服务端IP，其余为客户端IP
+    -p, --share-path PATH       NFS服务端共享路径 (默认: $DEFAULT_SHARE_PATH)
+    -m, --mount-point PATH      客户端挂载点路径 (默认: $DEFAULT_MOUNT_POINT)
+    -n, --network CIDR          (可选) 指定需要从防火墙规则中移除的网段
+                                如不指定，自动根据服务端IP计算 /24 网段
     -h, --help                  显示此帮助信息
 
-注意:
-    - 如果未指定节点IP列表文件，则会从默认位置读取
-    - 节点IP列表文件格式：每行一个IP地址，第一个IP将作为NFS服务器，其余作为客户端
+示例:
+    $0 -c ips.txt -p /data/nfs -m /data/nfs
 EOF
 }
+
+# 远程执行命令封装
+remote_exec() {
+    local ip="$1"
+    local cmd="$2"
+    local desc="${3:-Execute command}"
+
+    log_info "[$ip] $desc..."
+    if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$ip" "$cmd" 2>&1 | sed "s/^/[$ip] /"; then
+        return 0
+    else
+        log_error "[$ip] 执行失败: $desc"
+        return 1
+    fi
+}
+
+# ================= 主逻辑 =================
 
 # 初始化变量
 SHARE_PATH="$DEFAULT_SHARE_PATH"
 NODE_LIST_FILE="$DEFAULT_NODE_LIST_FILE"
 MOUNT_POINT="$DEFAULT_MOUNT_POINT"
+ALLOW_NETWORK=""
 
-# 解析命令行参数
+# 解析参数
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -c|--node-list)
-            NODE_LIST_FILE="$2"
-            shift 2
-            ;;
-        -p|--share-path)
-            SHARE_PATH="$2"
-            shift 2
-            ;;
-        -m|--mount-point)
-            MOUNT_POINT="$2"
-            shift 2
-            ;;
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        *)
-            echo "未知选项: $1"
-            show_help
-            exit 1
-            ;;
+        -c|--node-list) NODE_LIST_FILE="$2"; shift 2 ;;
+        -p|--share-path) SHARE_PATH="$2"; shift 2 ;;
+        -m|--mount-point) MOUNT_POINT="$2"; shift 2 ;;
+        -n|--network) ALLOW_NETWORK="$2"; shift 2 ;;
+        -h|--help) show_help; exit 0 ;;
+        *) echo "未知选项: $1"; show_help; exit 1 ;;
     esac
 done
 
-if [[ ! "$MOUNT_POINT" =~ ^/ ]]; then
-    echo "错误: 挂载点路径必须是绝对路径: $MOUNT_POINT"
+# 校验参数
+if [[ ! "$SHARE_PATH" =~ ^/ ]] || [[ ! "$MOUNT_POINT" =~ ^/ ]]; then
+    log_error "路径必须是绝对路径"
     exit 1
 fi
 
-if [[ ! "$SHARE_PATH" =~ ^/ ]]; then
-    echo "错误: 共享路径必须是绝对路径: $SHARE_PATH"
+if [[ ! -f "$NODE_LIST_FILE" ]]; then
+    log_error "节点列表文件不存在: $NODE_LIST_FILE"
     exit 1
 fi
 
-# 加载节点IP列表
-if [[ -f "$NODE_LIST_FILE" ]]; then
-    echo "从文件 $NODE_LIST_FILE 加载节点IP列表..."
-    mapfile -t nodes < <(grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' "$NODE_LIST_FILE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-else
-    echo "错误: 节点IP列表文件 $NODE_LIST_FILE 不存在"
-    exit 1
-fi
+# 读取节点列表
+mapfile -t nodes < <(grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' "$NODE_LIST_FILE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^#')
 
-# 验证节点IP数量
 if [[ ${#nodes[@]} -eq 0 ]]; then
-    echo "错误: 没有找到有效的节点IP地址"
+    log_error "未找到有效的节点IP"
     exit 1
 fi
 
-# 第一个节点作为服务器，其余作为客户端
 SERVER_IP="${nodes[0]}"
-clients=("${nodes[@]:1}")
+CLIENT_IPS=("${nodes[@]:1}")
 
-echo "找到 ${#nodes[@]} 个节点IP地址"
-echo "NFS服务器: $SERVER_IP"
-echo "NFS客户端数量: ${#clients[@]}"
-
-# 如果没有客户端节点，仍然可以卸载服务器
-if [[ ${#clients[@]} -eq 0 ]]; then
-    echo "提示: 没有客户端节点，仅卸载服务器上的NFS配置"
+# 如果未指定网段，自动计算 /24 (用于清理防火墙规则)
+if [[ -z "$ALLOW_NETWORK" ]]; then
+    ALLOW_NETWORK=$(echo "$SERVER_IP" | sed 's/\.[0-9]*$/.0\/24/')
+    log_info "自动识别需清理的网段: $ALLOW_NETWORK"
 fi
 
-echo "共享路径: $SHARE_PATH"
-echo "挂载点: $MOUNT_POINT"
+echo "================ 卸载预览 ================"
+echo "NFS 服务端: $SERVER_IP"
+echo "共享路径:   $SHARE_PATH"
+echo "清理网段:   $ALLOW_NETWORK"
+echo "NFS 客户端: ${#CLIENT_IPS[@]} 个 (${CLIENT_IPS[*]})"
+echo "挂载点:     $MOUNT_POINT"
+echo "=========================================="
+echo "注意: 此操作将停止 NFS 服务并卸载挂载点，请确保没有进程正在使用这些文件。"
+echo
 
-# 提示用户确认
-read -p "是否继续卸载NFS配置? [y/N]: " -n 1 -r
+read -p "确认开始卸载? [y/N]: " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo "操作已取消"
     exit 0
 fi
 
-# 获取服务器IP的网段
-SERVER_NETWORK=$(echo "$SERVER_IP" | sed 's/\.[0-9]*$/.0\/24/')
+# ================= 服务端卸载函数 =================
 
-echo "正在卸载NFS服务器节点: $SERVER_IP"
+undeploy_server() {
+    local ip=$1
+    local share_path=$2
+    local network=$3
 
-# 检查SSH连接
-if ! ssh -o ConnectTimeout=10 -q "$SERVER_IP" "exit 0" 2>/dev/null; then
-    echo "错误: 无法连接到NFS服务器 $SERVER_IP"
-    exit 1
-fi
+    local uninstall_script="
+        set -e
+        # 1. 识别服务名称
+        SERVICE_NAME=\"\"
+        if systemctl list-unit-files | grep -q nfs-kernel-server; then
+            SERVICE_NAME=nfs-kernel-server
+        elif systemctl list-unit-files | grep -q nfs-server; then
+            SERVICE_NAME=nfs-server
+        fi
 
-# 卸载NFS服务器配置
-echo "  - 检查NFS服务是否正在运行"
-NFS_RUNNING=$(ssh "$SERVER_IP" "sudo systemctl is-active nfs-server.service 2>/dev/null || echo 'inactive'")
+        # 2. 停止并禁用服务
+        if [[ -n \"\$SERVICE_NAME\" ]]; then
+            echo \"Stopping \$SERVICE_NAME...\"
+            systemctl stop \$SERVICE_NAME || true
+            systemctl disable \$SERVICE_NAME || true
+        else
+            echo \"NFS service not found, skipping stop/disable.\"
+        fi
 
-if [[ "$NFS_RUNNING" == "active" ]]; then
-    echo "  - 停止NFS服务"
-    ssh "$SERVER_IP" "sudo systemctl stop nfs-server.service" || { echo "错误: 无法停止NFS服务"; exit 1; }
-else
-    echo "  - NFS服务未运行，跳过停止步骤"
-fi
+        # 3. 清理 Exports
+        if [ -f /etc/exports ]; then
+            if grep -qF \"$share_path\" /etc/exports; then
+                # 备份
+                cp /etc/exports /etc/exports.bak.uninstall.\$(date +%s)
+                # 删除配置行
+                sed -i \"\|$share_path|d\" /etc/exports
+                echo \"Removed export config for $share_path\"
 
-echo "  - 检查/etc/exports中是否存在相关配置"
-CONFIG_EXISTS=$(ssh "$SERVER_IP" "grep -F '$SHARE_PATH $SERVER_NETWORK' /etc/exports || true")
+                # 刷新配置 (即使服务停止了，最好也清理一下状态)
+                exportfs -ra || true
+            else
+                echo \"Export config not found for $share_path, skipping.\"
+            fi
+        fi
 
-if [[ -n "$CONFIG_EXISTS" ]]; then
-    echo "  - 从/etc/exports中移除NFS导出配置"
-    ssh "$SERVER_IP" "sudo sed -i '\@$SHARE_PATH $SERVER_NETWORK@d' /etc/exports" || { echo "错误: 无法从/etc/exports中删除配置"; exit 1; }
+        # 4. 清理防火墙
+        if command -v ufw >/dev/null && systemctl is-active --quiet ufw; then
+            echo \"Cleaning UFW rules...\"
+            # 尝试删除规则，忽略错误（如果规则不存在）
+            ufw delete allow from $network to any port nfs || true
+            ufw delete allow from $network to any port 2049 || true
+            ufw delete allow from $network to any port 111 || true
+        elif command -v firewall-cmd >/dev/null && systemctl is-active --quiet firewalld; then
+            echo \"Cleaning Firewalld rules...\"
+            firewall-cmd --permanent --remove-service=nfs || true
+            firewall-cmd --permanent --remove-service=rpc-bind || true
+            firewall-cmd --permanent --remove-service=mountd || true
+            firewall-cmd --reload
+        fi
 
-    echo "  - 更新export配置"
-    ssh "$SERVER_IP" "sudo exportfs -ra" || { echo "错误: 无法更新exportfs"; exit 1; }
-    echo "  - NFS服务器配置已移除"
-else
-    echo "  - NFS导出配置不存在，跳过删除步骤"
-fi
+        # 5. 清理共享目录 (可选，这里只在目录为空时删除，避免误删数据)
+        if [ -d \"$share_path\" ]; then
+            if [ -z \"\$(ls -A \"$share_path\")\" ]; then
+                rmdir \"$share_path\"
+                echo \"Removed empty share directory: $share_path\"
+            else
+                echo \"Share directory is not empty, keeping it: $share_path\"
+            fi
+        fi
+    "
 
-echo "  - 删除共享目录 (如果为空)"
-ssh "$SERVER_IP" "if [ -d '$SHARE_PATH' ] && [ -z \"\$(ls -A '$SHARE_PATH' 2>/dev/null)\" ]; then sudo rmdir '$SHARE_PATH'; echo '  - 共享目录已删除（如果是空的）'; else echo '  - 共享目录非空或不存在，保留'; fi"
+    remote_exec "$ip" "$uninstall_script" "卸载 NFS 服务端"
+}
 
-echo "NFS服务器卸载完成"
+# ================= 客户端卸载函数 =================
 
-# 统计变量
+undeploy_client() {
+    local ip=$1
+    local mount_point=$2
+
+    local uninstall_script="
+        set -e
+
+        # 1. 卸载挂载点
+        if mountpoint -q \"$mount_point\"; then
+            echo \"Unmounting $mount_point...\"
+            # 尝试正常卸载，失败则尝试强制卸载 (lazy unmount)
+            umount \"$mount_point\" || umount -l \"$mount_point\"
+            echo \"Unmounted successfully\"
+        else
+            echo \"Not mounted, skipping unmount.\"
+        fi
+
+        # 2. 清理 fstab
+        if grep -qF \"$mount_point\" /etc/fstab; then
+            # 备份
+            cp /etc/fstab /etc/fstab.bak.uninstall.\$(date +%s)
+            # 删除配置行
+            sed -i \"\|$mount_point|d\" /etc/fstab
+            echo \"Removed fstab entry for $mount_point\"
+
+            # 重新加载 daemon 以防万一 (对于 systemd)
+            systemctl daemon-reload || true
+        else
+            echo \"No fstab entry found for $mount_point, skipping.\"
+        fi
+
+        # 3. 删除挂载点目录 (仅当为空时)
+        if [ -d \"$mount_point\" ]; then
+            if [ -z \"\$(ls -A \"$mount_point\")\" ]; then
+                rmdir \"$mount_point\"
+                echo \"Removed empty mount point: $mount_point\"
+            else
+                echo \"Mount point directory is not empty (or busy), keeping it: $mount_point\"
+            fi
+        fi
+    "
+
+    remote_exec "$ip" "$uninstall_script" "卸载 NFS 客户端"
+}
+
+# ================= 执行流程 =================
+
 SUCCESS_COUNT=0
 FAIL_COUNT=0
 
-# 卸载客户端配置
-echo "开始卸载 ${#clients[@]} 个NFS客户端配置..."
-
-for i in "${!clients[@]}"; do
-    ip="${clients[$i]}"
-
-    echo "正在卸载客户端 ($((i+1))/${#clients[@]}): $ip"
-
-    # 验证IP格式
-    if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-        echo "  - 跳过无效IP: $ip"
-        ((FAIL_COUNT++))
+# 1. 先卸载客户端 (防止服务端停了客户端卡死)
+log_info ">>> 开始卸载 NFS 客户端 (共 ${#CLIENT_IPS[@]} 台)"
+for client_ip in "${CLIENT_IPS[@]}"; do
+    if [[ "$client_ip" == "$SERVER_IP" ]]; then
+        log_info "跳过服务端本机 ($client_ip) 作为客户端的清理 (将在服务端环节处理或请手动检查)"
         continue
     fi
 
-    # 检查SSH连接
-    if ! ssh -o ConnectTimeout=10 -q "$ip" "exit 0" 2>/dev/null; then
-        echo "  - 错误: 无法连接到客户端 $ip"
+    if undeploy_client "$client_ip" "$MOUNT_POINT"; then
+        log_info "客户端 $client_ip 卸载成功"
+        ((SUCCESS_COUNT++))
+    else
+        log_error "客户端 $client_ip 卸载失败"
         ((FAIL_COUNT++))
-        continue
     fi
-
-    # 检查是否已挂载
-    IS_MOUNTED=$(ssh "$ip" "mount | grep '$MOUNT_POINT' || true")
-    if [[ -n "$IS_MOUNTED" ]]; then
-        echo "  - 卸载NFS挂载点: $MOUNT_POINT"
-        ssh "$ip" "sudo umount '$MOUNT_POINT'" || { echo "  - 错误: 无法卸载挂载点 $MOUNT_POINT"; ((FAIL_COUNT++)); continue; }
-    else
-        echo "  - 挂载点未挂载或已经卸载"
-    fi
-
-    # 从fstab中删除对应条目
-    FSTAB_ENTRY="$SERVER_IP:$SHARE_PATH $MOUNT_POINT nfs defaults,_netdev 0 0"
-    FSTAB_EXISTS=$(ssh "$ip" "grep -F '$FSTAB_ENTRY' /etc/fstab || true")
-
-    if [[ -n "$FSTAB_EXISTS" ]]; then
-        echo "  - 从/etc/fstab中移除条目"
-        ssh "$ip" "sudo sed -i '\@$FSTAB_ENTRY@d' /etc/fstab" || { echo "  - 无法从fstab删除条目"; ((FAIL_COUNT++)); continue; }
-        echo "  - fstab条目已移除"
-    else
-        echo "  - fstab条目不存在，跳过删除"
-    fi
-
-    # 删除挂载点目录（如果为空）
-    echo "  - 删除挂载点目录（如果为空）"
-    ssh "$ip" "if [ -d '$MOUNT_POINT' ] && [ -z \"\$(ls -A '$MOUNT_POINT' 2>/dev/null)\" ]; then sudo rmdir '$MOUNT_POINT'; echo '  - 挂载点目录已删除（如果是空的）'; else echo '  - 挂载点非空或不存在，保留'; fi"
-
-    echo "  - 客户端 $ip 卸载完成"
-    ((SUCCESS_COUNT++))
 done
 
-# 输出最终统计
-echo
-echo "=== 卸载完成 ==="
-echo "成功卸载: $SUCCESS_COUNT 个客户端"
-echo "卸载失败: $FAIL_COUNT 个客户端"
-echo "总计: ${#clients[@]} 个客户端"
-
-if [[ $FAIL_COUNT -gt 0 ]]; then
-    echo
-    echo "警告: 一些客户端卸载失败，请手动检查这些节点"
-    exit 1
+# 2. 再卸载服务端
+log_info ">>> 开始卸载 NFS 服务端: $SERVER_IP"
+if undeploy_server "$SERVER_IP" "$SHARE_PATH" "$ALLOW_NETWORK"; then
+    log_info "服务端卸载成功"
+else
+    log_error "服务端卸载失败"
+    # 服务端失败不应该影响脚本的退出状态码，除非它真的很重要。
+    # 这里我们记录错误，但允许脚本继续完成（实际上是最后一步了）。
+    FAIL_COUNT=$((FAIL_COUNT + 1))
 fi
 
-echo "NFS卸载全部完成！"
+echo
+echo "================ 卸载完成 ================"
+echo "客户端成功: $SUCCESS_COUNT"
+echo "客户端失败/服务端失败: $FAIL_COUNT"
+echo "=========================================="
+
+if [[ $FAIL_COUNT -gt 0 ]]; then
+    log_warn "部分节点卸载失败，请检查上方日志。"
+    exit 1
+fi
