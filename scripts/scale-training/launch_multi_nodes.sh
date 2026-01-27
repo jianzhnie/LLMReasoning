@@ -57,8 +57,9 @@ if [ ${#NODE_HOSTS[@]} -eq 0 ]; then
 fi
 
 # --- 训练相关参数，来自你原始脚本的配置 ---
-PROJECT_DIR="/home/jianzhnie/llmtuner/llm/LLMReasoning/scripts/scale-training"
+PROJECT_DIR="/home/jianzhnie/llmtuner/llm/LLMPractice/scripts/scale-training"
 DATA_PATH=""
+DATA_NAME_PATTERN="part*"
 TOKENIZER_PATH=""
 CKPT_LOAD_DIR=""
 
@@ -131,7 +132,31 @@ cleanup() {
 # 主逻辑函数
 #----------------------------------------
 
-# 打印配置信息
+# Auto-discover data paths (populate no_ext_files array)
+discover_data_prefixes() {
+    local data_path="$1"
+    local pattern="$2"
+    local -n out_array=$3   # nameref for returning the array
+
+    echo "[INFO] 正在从 DATA_PATH='$data_path' 和 PATTERN='$pattern' 自动发现数据文件..."
+    mapfile -t out_array < <(
+        find "$data_path" -maxdepth 1 -name "$pattern" -type f 2>/dev/null \
+        | sed 's/\.[^.]*$//' \
+        | sort -u
+    )
+
+    if [ ${#out_array[@]} -eq 0 ]; then
+        echo "[ERROR] 未在 '$data_path' 中找到匹配 '$pattern' 的文件！"
+        return 1
+    fi
+
+    echo "[INFO] 发现以下去重后的数据前缀（已去除 .bin/.idx 后缀）:"
+    printf '  - %s\n' "${out_array[@]}"
+    return 0
+}
+
+
+
 print_config() {
     echo "========================================================"
     echo "🚀 开始启动多节点分布式训练"
@@ -182,6 +207,7 @@ launch_nodes() {
             export CKPT_LOAD_DIR='$CKPT_LOAD_DIR';
             export CKPT_SAVE_DIR='$CKPT_SAVE_DIR';
             export DATA_PATH='$DATA_PATH';
+            export DATA_PREFIXES='$DATA_PREFIXES';
             export TOKENIZER_PATH='$TOKENIZER_PATH';
             export LOG_DIR='$LOG_DIR';
             export PROJECT_DIR='$PROJECT_DIR'
@@ -238,11 +264,39 @@ wait_for_completion() {
     echo "========================================================"
 }
 
+
+prepare_data_prefixes() {
+    if ! discover_data_prefixes "$DATA_PATH" "$DATA_NAME_PATTERN" DATA_FILES_LIST; then
+        return 1
+    fi
+    echo "[INFO] DATA_FILES_LIST: ${DATA_FILES_LIST[*]}"
+    # 将数组拼接为 Python 列表格式的字符串 (['path1','path2',...])
+    # 1. 使用 printf 给每个元素加上单引号
+    local quoted_list=()
+    for item in "${DATA_FILES_LIST[@]}"; do
+        quoted_list+=("'$item'")
+    done
+
+    # 2. 使用 IFS=, 将带引号的元素拼接
+    local joined_items=$(IFS=,; echo "${quoted_list[*]}")
+
+    # 3. 直接赋值数组元素，不需要方括号
+    DATA_PREFIXES="${DATA_FILES_LIST[*]}"
+    echo "[INFO] 自动生成的数据集前缀列表 (Python List Format): $DATA_PREFIXES"
+    return 0
+}
+
+
 #----------------------------------------
 # 主执行流程
 #----------------------------------------
 main() {
     print_config
+    # --- main script usage ---
+    if ! prepare_data_prefixes; then
+        exit 1
+    fi
+
     launch_nodes
     # 任务已全部启动，现在等待它们完成。
     # 在此期间如果用户按 Ctrl+C，INT/TERM trap 会被触发。
